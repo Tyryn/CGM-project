@@ -1,32 +1,31 @@
-library(rvest)
+library(RSelenium)
 library(tidyverse)
 
-login <- 'https://carelink.minimed.eu/patient/sso/login?country=za&lang=en'
 
-carelink_login <- html_session(login)
+driver <- RSelenium::rsDriver(browser=c("chrome"), chromever = "85.0.4183.83",
+                              port = 4837L)
 
-form <- html_form(carelink_login)[[1]]
+remote_driver <- driver[["client"]]
+remote_driver$open()
 
-filled_form <- set_values(form, username = "Tyryn", password = "golfball") %>%
-  session_history() 
+# Landing page ####
+remote_driver$navigate("https://carelink.minimed.eu/patient/sso/login?country=za&lang=en")
 
-main_page <- submit_form(carelink_login, filled_form) %>%
-  session_history()
+username_textfield <- remote_driver$findElement(using = "id", value = "username")
+username_textfield$sendKeysToElement(list("Tyryn"))
 
-x <- main_page %>%
-  jump_to("https://carelink.minimed.eu/app/reports") %>%
-  read_html() %>%
-  html_nodes("#h-reports") 
+password_textfield <- remote_driver$findElement(using = "id", value = "password")
+password_textfield$sendKeysToElement(list("golfball"))
 
+submit_button <- remote_driver$findElement(using = "name", value = "actionButton")
+submit_button$clickElement()
 
+# Home page ####
+reports_button <- remote_driver$findElement(using = "id", value = "h-reports")
+reports_button$clickElement()
 
+# Set time period ####
 
-
-url<-"https://carelink.minimed.eu/patient/sso/login?country=za&lang=en"
-page<-html_session(url)
-page<-rvest:::request_POST(page,url="https://carelink.minimed.eu/patient/sso/login?country=za&lang=en",
-                           body=list("username"="Tyryn",
-                                     "password"="golfball",
-                                     "redirect_url"="https://carelink.minimed.eu/app/home"),
-                           encode='json'
-)
+# Download CSV ####
+csv_button <- remote_driver$findElement(using = "id", value =  "p-button-export-reports")
+csv_button$clickElement()
