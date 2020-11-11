@@ -5,6 +5,10 @@ library(forecast)
 library(zoo)
 library(Hmisc) # For summary stats (describe command)
 library(plotly)
+library(profvis)
+
+
+  
 
 
 cgmData_raw <- read.csv("~/Bloodsugar project/CGM-project/Tyryn Carnegie 01.09.2020.csv")
@@ -78,6 +82,19 @@ p <- ggplot(cgmData, aes(x=date_time, y=glucose_sd, color=percent_in_range,
                                     "Percent in range: ", paste0(round(percent_in_range),"%"), "<br>",
                                     "Std. deviation: ", round(glucose_sd, 2)))) +
   geom_segment(aes(x=date_time, xend=date_time, y=0, yend=glucose_sd)) +
+  geom_point( size=5,  alpha=0.7)+
+  theme_minimal() + 
+  scale_color_viridis_c()
+
+figure <- ggplotly(p, tooltip = c("text"))
+figure
+
+# Make the same lollipop plot, but switch percent in range and standard deviation
+p <- ggplot(cgmData, aes(x=date_time, y=percent_in_range, color=glucose_sd, 
+                         text=paste0("Date: ", date, "<br>",
+                                     "Percent in range: ", paste0(round(percent_in_range),"%"), "<br>",
+                                     "Std. deviation: ", round(glucose_sd, 2)))) +
+  geom_segment(aes(x=date_time, xend=date_time, y=0, yend=percent_in_range)) +
   geom_point( size=5,  alpha=0.7)+
   theme_minimal() + 
   scale_color_viridis_c()
