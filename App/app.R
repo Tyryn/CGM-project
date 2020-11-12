@@ -34,10 +34,15 @@ ui <- fluidPage(
        fluidRow(
            plotlyOutput("graph")
          #  tableOutput("contents")  
+       ),
+       fluidRow(
+           plotOutput("dailyGraph")
        )
    )
  )
 )
+
+############################ Server #######################################################################
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
@@ -98,25 +103,52 @@ server <- function(input, output) {
 
     output$graph <- renderPlotly({
         
+        validate(
+            need(!is.null(getData()), "No data uploaded yet")
+        )
+        
         p <- ggplot(cgmData(), aes(x=date_time, y=percent_in_range, color=glucose_sd, 
                                  text=paste0("Date: ", date, "<br>",
                                              "Percent in range: ", paste0(round(percent_in_range*100),"%"), "<br>",
                                              "Std. deviation: ", round(glucose_sd, 2)))) +
             geom_segment(aes(x=date_time, xend=date_time, y=0, yend=percent_in_range)) +
-            geom_point( size=5,  alpha=0.7)+ scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-            theme_minimal() + xlab("Date") + ylab("% readings in range") +
-            scale_color_gradient(high = "#FF0000", low = "#66ff00")
+            geom_point( size=5,  alpha=0.7)+ scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+            theme_minimal() + xlab("") + ylab("% readings in range") +
+            scale_color_gradient(high = "#FF0000", low = "#66ff00", name = "Daily blood \nsugar variability",
+                                 breaks = c(1, 5), labels = c("Low", "High"))
 
-        figure <- ggplotly(p, tooltip = c("text"))
-        figure
+        p <- ggplotly(p, tooltip = c("text"), source = "date") %>%
+            event_register("plotly_click")
+        p 
     })
     
+    dateClicked <- reactive({
+        eventDate <- event_data(event = "plotly_click", source = "date") 
+        rowNumber <- eventDate[,2] + 1
+        
+        data <- cgmData() %>%
+            ungroup() %>%
+            slice(rowNumber)
+        
+        date_clicked <- data[[1,2]]
+        date_clicked
+
+    })
     
+    dailyData <- reactive({
+        daily_data <- getData() %>%
+            filter(Date==dateClicked())
+        daily_data
+    })
     
-    # output$contents <- renderTable({
-    #     cgmData()
-    # })
-    # 
+    output$dailyGraph <- renderPlot({
+        plot <- ggplot(dailyData(), aes(x=date_time, y=`Sensor Glucose (mmol/L)`)) +
+            geom_line() + xlab("") + theme_minimal() + scale_y_continuous(limits = c(0,25)) 
+        plot
+    })
+
+    
+
     
     output$downloadData <- downloadHandler(
         filename = function() { 
