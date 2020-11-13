@@ -21,16 +21,26 @@ options(shiny.maxRequestSize = 30*1024^2)
 ui <- dashboardPage(
     dashboardHeader(title = "CGM explorer"),
     dashboardSidebar(
+    
+   # Tag so that the calendars don't get hidden by the title bar     
+            tags$div(tags$style(HTML( ".dropdown-menu{z-index:10000 !important;}"))), 
+        
    # Sidebar panel where users upload CSVs
             fileInput("infile", "Upload Carelink csv files (multiple possible)",
                       multiple = TRUE,
                       accept = c("text/csv",
                                  "text/comma-separated-values,text/plain",
                                  ".csv")),
+            fluidRow(
+                hr()
+            ),
             dateRangeInput("date1", "Pick a first date range", start = Sys.Date() - 30, end = Sys.Date(),
                            format = "yyyy-mm-dd"),
             dateRangeInput("date2", "Pick a second date range", start = Sys.Date() - 61, end = Sys.Date()-31,
                            format = "yyyy-mm-dd"),
+            fluidRow(
+                hr()
+            ),
             downloadButton('downloadData', 'Download')
    # Main panel to display table
         ),
@@ -38,8 +48,8 @@ ui <- dashboardPage(
        fluidRow(
          box(title = "% days with data", width = 3, solidHeader = TRUE, status = "primary",
              fluidRow(box(),box())),
-         box(title = "% days >75% in range", width = 3, solidHeader = TRUE, status = "primary",
-             fluidRow(box(),box())),
+         box(title = "% days >70% in range", width = 3, solidHeader = TRUE, status = "primary",
+             fluidRow(box(textOutput("days_70_1")),box(textOutput("days_70_2")))),
          box(title = "Best day of the week", width = 3, solidHeader = TRUE, status = "primary",
              fluidRow(box(),box())),
          box(title = "Worst day of the week", width = 3, solidHeader = TRUE, status = "primary",
@@ -59,10 +69,10 @@ ui <- dashboardPage(
        ),
        fluidRow(
            plotlyOutput("dailyGraph")
-       ),
-       fluidRow(
-           tableOutput("days_75_1")
-       )
+       ) #,
+       # fluidRow(
+       #     tableOutput("days_70_1")
+       # )
    )
  )
 
@@ -120,6 +130,25 @@ server <- function(input, output) {
               do.call(bind_rows, files)
         }
         })
+    
+    # Data per day
+    cgmData <- reactive({
+        cgmData <- getData() %>%
+            mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
+            distinct(date_time, .keep_all = TRUE) %>%
+            group_by(date) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(in_range = ifelse(`Sensor Glucose (mmol/L)`>=4.5 & `Sensor Glucose (mmol/L)`<=8, 1, 0)) %>%
+            group_by(date) %>%
+            add_tally() %>%
+            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
+            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
+            distinct(date, .keep_all = TRUE) %>%
+            # Below is for best and worst day of the week
+            mutate(day_of_week = weekdays(date))
+        cgmData
+    })
 
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     # Blocks #### 
@@ -141,9 +170,19 @@ server <- function(input, output) {
         date2_data
     })
     
-    # % of days >75% in range ####
-    output$days_75_1 <- renderTable({
-        days_75_1_data <- date1Data() %>%
+    # % of days >70% in range ####
+    
+    # First date range
+    output$days_70_1 <- renderText({
+        
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date1Data()), "---")
+        ) 
+        
+        days_70_1_data <- date1Data() %>%
             distinct(date_time, .keep_all = TRUE) %>%
             group_by(Date) %>%
             mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
@@ -152,17 +191,57 @@ server <- function(input, output) {
             group_by(Date) %>%
             add_tally() %>%
             mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
-            filter(n>100) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
+            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
             distinct(Date, .keep_all = TRUE) %>%
             ungroup() %>%
-            mutate(n = n()) # %>%
-            # Over here, count the number of days with over 75% in range
+            mutate(n = n()) %>%
+            # Count the number of days with over 70% in range
+            mutate(count_70 = sum(percent_in_range>=0.70))
         
-        days_75_1_data
+        days_over_70_percent <- paste0(round((days_70_1_data$count_70[1]/days_70_1_data$n[1])*100), "%")
+        days_over_70_percent
+        
     })
     
+    # Second date range
+    output$days_70_2 <- renderText({
+        
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date2Data()), "---")
+        ) 
+        
+        days_70_2_data <- date2Data() %>%
+            distinct(date_time, .keep_all = TRUE) %>%
+            group_by(Date) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(in_range = ifelse(`Sensor Glucose (mmol/L)`>=4.5 & `Sensor Glucose (mmol/L)`<=8, 1, 0)) %>%
+            group_by(Date) %>%
+            add_tally() %>%
+            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
+            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
+            distinct(Date, .keep_all = TRUE) %>%
+            ungroup() %>%
+            mutate(n = n()) %>%
+            # Count the number of days with over 70% in range
+            mutate(count_70 = sum(percent_in_range>=0.70))
+        
+        days_over_70_percent <- paste0(round((days_70_2_data$count_70[1]/days_70_2_data$n[1])*100), "%")
+        days_over_70_percent
+        
+    })
     
+    # Best and worst days of the week ####
     
+    # First date range
+    dayData1 <- reactive({
+       day_data <- date1Data %>%
+           ungroup() %>%
+           group_by(da)
+    })
     
     
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
@@ -171,22 +250,7 @@ server <- function(input, output) {
     
     # Create graph showing the days with best average blood sugar and lowest standard deviation
     
-    # Get the standard deviation by day
-    cgmData <- reactive({
-        cgmData <- getData() %>%
-            mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
-            distinct(date_time, .keep_all = TRUE) %>%
-            group_by(date) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(in_range = ifelse(`Sensor Glucose (mmol/L)`>=4.5 & `Sensor Glucose (mmol/L)`<=8, 1, 0)) %>%
-            group_by(date) %>%
-            add_tally() %>%
-            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
-            filter(n>100) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
-            distinct(date, .keep_all = TRUE) 
-        cgmData
-    })
+
 
     output$graph <- renderPlotly({
         
@@ -194,11 +258,17 @@ server <- function(input, output) {
             need(!is.null(getData()), "No data uploaded yet")
         )
         
-        p <- ggplot(cgmData(), aes(x=date_time, y=percent_in_range, color=glucose_sd, 
+        p <- ggplot(cgmData(), aes(x=date, y=percent_in_range, color=glucose_sd, 
                                  text=paste0("Date: ", date, "<br>",
                                              "Percent in range: ", paste0(round(percent_in_range*100),"%"), "<br>",
                                              "Std. deviation: ", round(glucose_sd, 2)))) +
-            geom_segment(aes(x=date_time, xend=date_time, y=0, yend=percent_in_range)) +
+            # Get colored bars showing the selected date range
+            annotate("rect", xmin = input$date1[2], xmax = input$date1[1], ymin = 0,
+                     ymax=1, fill="blue", alpha=.1,color=NA) +
+            annotate("rect", xmin = input$date2[2], xmax = input$date2[1], ymin = 0,
+                     ymax=1, fill="pink", alpha=.2,color=NA) +
+            # Create lollipops
+            geom_segment(aes(x=date, xend=date, y=0, yend=percent_in_range)) +
             geom_point( size=5,  alpha=0.7)+ scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
             theme_minimal() + xlab("") + ylab("% readings in range") +
             scale_color_gradient(high = "#FF0000", low = "#66ff00", name = "Daily blood \nsugar variability",
