@@ -51,9 +51,9 @@ ui <- dashboardPage(
          box(title = "% days >70% in range", width = 3, solidHeader = TRUE, status = "primary",
              fluidRow(box(textOutput("days_70_1")),box(textOutput("days_70_2")))),
          box(title = "Best day of the week", width = 3, solidHeader = TRUE, status = "primary",
-             fluidRow(box(),box())),
+             fluidRow(box(textOutput("best_day_1")),box(textOutput("best_day_2")))),
          box(title = "Worst day of the week", width = 3, solidHeader = TRUE, status = "primary",
-             fluidRow(box(),box()))),
+             fluidRow(box(textOutput("worst_day_1")),box(textOutput("worst_day_2"))))),
        fluidRow(
        box(title = "% in range 12am-7am", width = 3, solidHeader = TRUE, status = "primary",
            fluidRow(box(),box())),
@@ -69,10 +69,10 @@ ui <- dashboardPage(
        ),
        fluidRow(
            plotlyOutput("dailyGraph")
-       ) #,
-       # fluidRow(
-       #     tableOutput("days_70_1")
-       # )
+       ) ,
+       fluidRow(
+           tableOutput("dailyTable")
+       )
    )
  )
 
@@ -156,17 +156,26 @@ server <- function(input, output) {
     
     # Date range 1 data ####
     date1Data <- reactive({
-        date1_data <- getData() %>%
-            mutate(Date = as.Date(Date, "%Y-%m-%d", tz=Sys.timezone())) %>%
-            dplyr::filter(Date>=input$date1[1] & Date<=input$date1[2])
+        date1_data <- cgmData() %>%
+            # mutate(Date = as.Date(Date, "%Y-%m-%d", tz=Sys.timezone())) %>%
+            dplyr::filter(date>=input$date1[1] & date<=input$date1[2]) %>%
+            ungroup() %>%
+            mutate(n = n()) %>%
+            # Count the number of days with over 70% in range
+            mutate(count_70 = sum(percent_in_range>=0.70))
+        
         date1_data
     })
     
     # Date range 2 data ####
     date2Data <- reactive({
-        date2_data <- getData() %>%
-            mutate(Date = as.Date(Date, "%Y-%m-%d", tz=Sys.timezone())) %>%
-            dplyr::filter(Date>=input$date2[1] & Date<=input$date2[2])
+        date2_data <- cgmData() %>%
+            dplyr::filter(date>=input$date2[1] & date<=input$date2[2]) %>%
+            ungroup() %>%
+            mutate(n = n()) %>%
+            # Count the number of days with over 70% in range
+            mutate(count_70 = sum(percent_in_range>=0.70))
+        
         date2_data
     })
     
@@ -182,23 +191,7 @@ server <- function(input, output) {
             need(!is.null(date1Data()), "---")
         ) 
         
-        days_70_1_data <- date1Data() %>%
-            distinct(date_time, .keep_all = TRUE) %>%
-            group_by(Date) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(in_range = ifelse(`Sensor Glucose (mmol/L)`>=4.5 & `Sensor Glucose (mmol/L)`<=8, 1, 0)) %>%
-            group_by(Date) %>%
-            add_tally() %>%
-            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
-            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
-            distinct(Date, .keep_all = TRUE) %>%
-            ungroup() %>%
-            mutate(n = n()) %>%
-            # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range>=0.70))
-        
-        days_over_70_percent <- paste0(round((days_70_1_data$count_70[1]/days_70_1_data$n[1])*100), "%")
+        days_over_70_percent <- paste0(round((date1Data()$count_70[1]/date1Data()$n[1])*100), "%")
         days_over_70_percent
         
     })
@@ -213,36 +206,96 @@ server <- function(input, output) {
             need(!is.null(date2Data()), "---")
         ) 
         
-        days_70_2_data <- date2Data() %>%
-            distinct(date_time, .keep_all = TRUE) %>%
-            group_by(Date) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(in_range = ifelse(`Sensor Glucose (mmol/L)`>=4.5 & `Sensor Glucose (mmol/L)`<=8, 1, 0)) %>%
-            group_by(Date) %>%
-            add_tally() %>%
-            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
-            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
-            distinct(Date, .keep_all = TRUE) %>%
-            ungroup() %>%
-            mutate(n = n()) %>%
-            # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range>=0.70))
-        
-        days_over_70_percent <- paste0(round((days_70_2_data$count_70[1]/days_70_2_data$n[1])*100), "%")
+        days_over_70_percent <- paste0(round((date2Data()$count_70[1]/date2Data()$n[1])*100), "%")
         days_over_70_percent
         
     })
     
     # Best and worst days of the week ####
+    # For each day in the data, get the daily % readings in range, then get the average by day of the week
     
-    # First date range
+    ## First date range
     dayData1 <- reactive({
-       day_data <- date1Data %>%
+       day_data <- date1Data() %>%
            ungroup() %>%
-           group_by(da)
+           group_by(day_of_week) %>%
+           mutate(day_of_week_mean = mean(percent_in_range, na.rm = TRUE)) %>%
+           distinct(day_of_week, .keep_all = TRUE) %>%
+           select(day_of_week, day_of_week_mean)
+       day_data
     })
     
+    # Best and worst days
+    output$best_day_1 <- renderText({
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date1Data()), "---")
+        ) 
+        best_day_percent <- dayData1() %>%
+            arrange(desc(day_of_week_mean))
+        
+        best_day_percent <- paste0(best_day_percent$day_of_week[1], ": ",
+                                  paste0(round(best_day_percent$day_of_week_mean[1]*100), "% IR"))
+        best_day_percent
+    })
+    
+    output$worst_day_1 <- renderText({
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date1Data()), "---")
+        ) 
+        worst_day_percent <- dayData1() %>%
+            arrange(day_of_week_mean)
+        
+        worst_day_percent <- paste0(worst_day_percent$day_of_week[1], ": ",
+                                   paste0(round(worst_day_percent$day_of_week_mean[1]*100), "% IR"))
+        worst_day_percent
+    })
+    
+    ## Second date range
+    dayData2 <- reactive({
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date1Data()), "---")
+        ) 
+        day_data <- date2Data() %>%
+            ungroup() %>%
+            group_by(day_of_week) %>%
+            mutate(day_of_week_mean = mean(percent_in_range, na.rm = TRUE)) %>%
+            distinct(day_of_week, .keep_all = TRUE) 
+        day_data
+    })
+    
+    # Best and worst days
+    output$best_day_2 <- renderText({
+        validate(
+            need(!is.null(getData()), "---")
+        )
+        validate(
+            need(!is.null(date2Data()), "---")
+        ) 
+        best_day_percent <- dayData2() %>%
+            arrange(desc(day_of_week_mean))
+        
+        best_day_percent <- paste0(best_day_percent$day_of_week[1], ": ",
+                                   paste0(round(best_day_percent$day_of_week_mean[1]*100), "% IR"))
+        best_day_percent
+    })
+    
+    output$worst_day_2 <- renderText({
+        worst_day_percent <- dayData2() %>%
+            arrange(day_of_week_mean)
+        
+        worst_day_percent <- paste0(worst_day_percent$day_of_week[1], ": ",
+                                    paste0(round(worst_day_percent$day_of_week_mean[1]*100), "% IR"))
+        worst_day_percent
+    })
     
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     # Graphs ####
@@ -322,9 +375,9 @@ server <- function(input, output) {
         plot
     })
     
-    # output$dailyTable <- renderTable({
-    #     cgmData()
-    # })
+    output$dailyTable <- renderTable({
+        dayData1()
+    })
 
     
     # Download the data ####
