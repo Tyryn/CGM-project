@@ -7,6 +7,8 @@ library(zoo)
 library(lubridate)
 library(scales)
 library(shinydashboard)
+library(zoo)
+library(shinyjs)
 
 # Function to make first row column names
 header.true <- function(df) {
@@ -14,14 +16,31 @@ header.true <- function(df) {
     df[-1, ]
 }
 
+# Function to get cumulative average of days in range
+cumavg <- function(x) cumsum(x) / seq_along(x)
+mav <- function(x,n){filter(x,rep(1/n,n), sides=1)} 
+
+# Function to create frames for the animated plotly line graph
+accumulate_by <- function(dat, var) {
+    var <- lazyeval::f_eval(var, dat)
+    lvls <- plotly:::getLevels(var)
+    dats <- lapply(seq_along(lvls), function(x) {
+        cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+    })
+    dplyr::bind_rows(dats)
+}
+
+
 # Increase the file upload limit to 30mb
 options(shiny.maxRequestSize = 30 * 1024 ^ 2)
+
 
 ############################ UI #######################################################################
 
 ui <- dashboardPage(
     dashboardHeader(title = "CGM explorer"),
     dashboardSidebar(
+        useShinyjs(),
         # Tag so that the calendars don't get hidden by the title bar
         tags$div(tags$style(
             HTML(".dropdown-menu{z-index:10000 !important;}")
@@ -37,6 +56,9 @@ ui <- dashboardPage(
                        ".csv")
         ),
         fluidRow(hr()),
+        sliderInput("target_range", "Set target blood glucose range (mmol/L)",
+                    min = 0, max = 20, value = c(4,10), step = 0.5),
+        fluidRow(hr()),
         dateRangeInput(
             "date1",
             "Pick a date range",
@@ -51,74 +73,121 @@ ui <- dashboardPage(
             end = Sys.Date() - 31,
             format = "yyyy-mm-dd"
         ),
+        radioButtons(
+            "ma_period",
+            label = "Pick a time period",
+            choices = list("All days" = 1, "200 days" = 200, "100 days" = 100, "50 days" = 50),
+            selected = 1
+        ),
         fluidRow(hr()),
         downloadButton('downloadData', 'Download')
         # Main panel to display table
     ),
     dashboardBody(
-        fluidRow(
-            box(
-                title = "# and % days with data",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("daysData1")), box(textOutput("daysData2")))
-            ),
-            box(
-                title = "% days >70% in range",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("days_70_1")), box(textOutput("days_70_2")))
-            ),
-            box(
-                title = "Best day of the week",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("best_day_1")), box(textOutput("best_day_2")))
-            ),
-            box(
-                title = "Worst day of the week",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("worst_day_1")), box(textOutput("worst_day_2")))
-            )
+        tabsetPanel(id = "tabs",
+            type = "tabs",
+            tabPanel("Overview", value = "A",
+                     fluidRow(
+                         box(
+                             title = "# and % days with data",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("daysData1")), box(textOutput("daysData2")))
+                         ),
+                         box(
+                             title = "% days >70% in range",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("days_70_1")), box(textOutput("days_70_2")))
+                         ),
+                         box(
+                             title = "Best day of the week",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("best_day_1")), box(textOutput("best_day_2")))
+                         ),
+                         box(
+                             title = "Worst day of the week",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("worst_day_1")), box(textOutput("worst_day_2")))
+                         )
+                     ),
+                     fluidRow(
+                         box(
+                             title = "Daily average low events",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary"
+                         ),
+                         box(
+                             title = "Daily average high events",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary"
+                         ),
+                         box(
+                             title = "Hour with most low events",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary"
+                         ),
+                         box(
+                             title = "Hour with most high events",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary"
+                         )
+                     ),
+                     fluidRow(
+                         box(
+                             title = "% in range 12am-7am",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("period_00_07_1")), box(textOutput("period_00_07_2")))
+                         ),
+                         box(
+                             title = "% in range 7am-11am",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("period_07_11_1")), box(textOutput("period_07_11_2")))
+                         ),
+                         box(
+                             title = "% in range 11am-6pm",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("period_11_18_1")), box(textOutput("period_11_18_2")))
+                         ),
+                         box(
+                             title = "% in range 6pm-12am",
+                             width = 3,
+                             solidHeader = TRUE,
+                             status = "primary",
+                             fluidRow(box(textOutput("period_18_00_1")), box(textOutput("period_18_00_2")))
+                         )
+                     ),
+                     fluidRow(
+                         box(title = "Daily readings", solidHeader = TRUE, status = "primary", width = 12,
+                             plotlyOutput("graph"),
+                             plotlyOutput("dailyGraph")))
+                     ),
+            tabPanel("Performance over time", value = "B",
+                     box(title = "% readings in range - moving average",
+                         solidHeader = TRUE,
+                         status = "primary", width = 12,
+                         plotlyOutput("cum_inrange"))),
+            tabPanel("Low and high glucose events", value = "C"),
+            tabPanel("Days of the week", value = "D"),
+            tabPanel("Time in range", value = "E")
         ),
-        fluidRow(
-            box(
-                title = "% in range 12am-7am",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("period_00_07_1")), box(textOutput("period_00_07_2")))
-            ),
-            box(
-                title = "% in range 7am-11am",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("period_07_11_1")), box(textOutput("period_07_11_2")))
-            ),
-            box(
-                title = "% in range 11am-6pm",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("period_11_18_1")), box(textOutput("period_11_18_2")))
-            ),
-            box(
-                title = "% in range 6pm-12am",
-                width = 3,
-                solidHeader = TRUE,
-                status = "primary",
-                fluidRow(box(textOutput("period_18_00_1")), box(textOutput("period_18_00_2")))
-            )
-        ),
-        fluidRow(plotlyOutput("graph")),
-        fluidRow(plotlyOutput("dailyGraph")) ,
-        fluidRow(tableOutput("dailyTable"))
+        fluidRow(textOutput("dailyTable"))
     )
 )
 
@@ -127,6 +196,15 @@ ui <- dashboardPage(
 
 # Define server logic required to draw a histogram
 server <- function(session, input, output) {
+    
+    # Hide the calendar if certain tabs selected ####
+    
+    observe({
+        shinyjs::toggle(id = "date1", condition = {"A" %in% input$tabs})
+        shinyjs::toggle(id = "date2", condition = {"A" %in% input$tabs})
+        shinyjs::toggle(id = "ma_period", condition = {"B" %in% input$tabs})
+    })
+    
     # Clean and append the CSVs together ----
     getData <- reactive({
         inFile <- input$infile
@@ -141,11 +219,11 @@ server <- function(session, input, output) {
             files <- lapply(inFile$datapath, function(y) {
                 csv <- read.csv(y, header = FALSE)
                 csv <- csv %>%
-                    # Keep only the rows with the sensor blood sugar data
+                    # Keep only the rows with the sensor blood glucose data
                     slice(str_which(V2, "Date")[1]:nrow(.)) %>%
                     slice(2:nrow(.)) %>%
                     slice(str_which(V2, "Date")[1]:nrow(.)) %>%
-                    # Keep only datetime and sensor blood sugar columns
+                    # Keep only datetime and sensor blood glucose columns
                     select(V2, V3, V32) %>%
                     header.true(.) %>%
                     # Convert to time date values
@@ -194,8 +272,8 @@ server <- function(session, input, output) {
             mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
             mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
             mutate(in_range = ifelse(
-                `Sensor Glucose (mmol/L)` >= 4.5 &
-                    `Sensor Glucose (mmol/L)` <= 8,
+                `Sensor Glucose (mmol/L)` >= input$target_range[1] &
+                    `Sensor Glucose (mmol/L)` <= input$target_range[2],
                 1,
                 0
             )) %>%
@@ -454,8 +532,8 @@ server <- function(session, input, output) {
             dplyr::filter(date >= input$date1[1] &
                               date <= input$date1[2]) %>%
             mutate(in_range = ifelse(
-                `Sensor Glucose (mmol/L)` >= 4.5 &
-                    `Sensor Glucose (mmol/L)` <= 8,
+                `Sensor Glucose (mmol/L)` >= input$target_range[1] &
+                    `Sensor Glucose (mmol/L)` <= input$target_range[2],
                 1,
                 0
             )) %>%
@@ -473,8 +551,8 @@ server <- function(session, input, output) {
             dplyr::filter(date >= input$date2[1] &
                               date <= input$date2[2]) %>%
             mutate(in_range = ifelse(
-                `Sensor Glucose (mmol/L)` >= 4.5 &
-                    `Sensor Glucose (mmol/L)` <= 8,
+                `Sensor Glucose (mmol/L)` >= input$target_range[1] &
+                    `Sensor Glucose (mmol/L)` <= input$target_range[2],
                 1,
                 0
             )) %>%
@@ -613,7 +691,7 @@ server <- function(session, input, output) {
     # Graphs ####
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     
-    # Create graph showing the days with best average blood sugar and lowest standard deviation
+    # Create graph showing the days with best average blood glucose and lowest standard deviation
     
     
     
@@ -671,7 +749,7 @@ server <- function(session, input, output) {
             scale_color_gradient(
                 high = "#FF0000",
                 low = "#66ff00",
-                name = "Daily blood \nsugar variability",
+                name = "Daily blood \nglucose variability",
                 breaks = c(0.5, 5.5),
                 labels = c("Low", "High"),
                 limits = c(0, 6)
@@ -683,6 +761,7 @@ server <- function(session, input, output) {
     })
     
     dateClicked <- reactive({
+        
         eventDate <- event_data(event = "plotly_click", source = "date")
         rowNumber <- eventDate[, 2] + 1
         
@@ -696,6 +775,13 @@ server <- function(session, input, output) {
     })
     
     dailyData <- reactive({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        validate(need(!is.null(event_data(event = "plotly_click", source = "date")),
+                      "Click a point in the graph above to show the readings for that day"))
+        validate(need(is.character(dateClicked()),
+                      "Click a point in the graph above to show the readings for that day"))
+        
+        
         daily_data <- getData() %>%
             filter(Date == dateClicked()) %>%
             rename(`Date-time` = date_time)
@@ -704,10 +790,11 @@ server <- function(session, input, output) {
     
     output$dailyGraph <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
-        validate(need(
-            !is.null(dailyData()),
-            "Select a data point on the plot above"
-        ))
+        validate(need(!is.null(event_data(event = "plotly_click", source = "date")),
+                      "Click a point in the graph above to show the readings for that day"))
+        validate(need(is.character(dateClicked()),
+                      "Click a point in the graph above to show the readings for that day"))
+
         
         # To create start and end times
         start_time <-
@@ -723,8 +810,8 @@ server <- function(session, input, output) {
                 "rect",
                 xmin = start_time,
                 xmax = end_time,
-                ymin = 4.5,
-                ymax = 8,
+                ymin = input$target_range[1],
+                ymax = input$target_range[2],
                 fill = "green",
                 alpha = .2,
                 color = NA
@@ -736,10 +823,86 @@ server <- function(session, input, output) {
         plot
     })
     
-    # output$dailyTable <- renderTable({
-    #     date1Data() %>% 
-    #         mutate(date = as.character(date))
-    # })
+    output$dailyTable <- renderText({
+        input$tabs
+    })
+    
+    # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
+    # Cumulative average days in range ####
+    # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
+    
+    cumAverage_df <- reactive({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        
+        if(input$ma_period==1){
+            df <- cgmData() %>%
+                ungroup() %>%
+                mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
+                arrange(date)  %>%
+                select(date, percent_in_range) %>%
+                drop_na() %>%
+                mutate(in_range_cum_mean =  cumavg(percent_in_range)) %>%
+                accumulate_by(~date) 
+        } else {
+            df <- cgmData() %>%
+                ungroup() %>%
+                mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
+                arrange(date)  %>%
+                select(date, percent_in_range) %>%
+                drop_na() %>%
+                mutate(in_range_cum_mean =  zoo::rollmean(percent_in_range, as.numeric(input$ma_period), fill = NA, align = "right")) %>%
+                accumulate_by(~date) 
+        }
+        df
+    })
+    
+    
+    
+    output$cum_inrange <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        # df <- cgmData() %>%
+        #     ungroup() %>%
+        #     mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
+        #     arrange(date)  %>%
+        #     select(date, percent_in_range) %>%
+        #     drop_na() %>%
+        #     mutate(in_range_cum_mean =  zoo::rollmean(percent_in_range, 30, fill = NA)) %>%
+        #     accumulate_by(~date)
+        
+        #df$in_range_cum_mean <- cumavg(df$percent_in_range)
+        # 
+        # df <- df %>%
+        #     accumulate_by(~date)
+        
+        df <- cumAverage_df()
+        
+        
+        plot <- ggplot(df, aes(x=date, y=in_range_cum_mean, frame=frame)) + 
+            ggplot2::geom_line() + theme_minimal() + 
+            scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+        
+        plot <- ggplotly(plot, tooltip = c("text")) %>%
+            
+            layout(
+                yaxis = list(
+                    title = "% readings in range"
+                ),
+                xaxis = list(
+                    title = "Date"
+                )
+            ) %>%
+            animation_opts(
+                frame = 100,
+                transition = 0,
+                redraw = FALSE
+            ) 
+        
+        plot
+        
+    })
+        
+     
+    
     
     
     # Download the data ####
@@ -748,7 +911,7 @@ server <- function(session, input, output) {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(getData(), file, row.names = FALSE)
+            write.csv(cgmData(), file, row.names = FALSE)
         }
     )
     
