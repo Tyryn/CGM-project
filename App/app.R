@@ -187,7 +187,7 @@ ui <- dashboardPage(
             tabPanel("Days of the week", value = "D"),
             tabPanel("Time in range", value = "E")
         ),
-        fluidRow(textOutput("dailyTable"))
+        fluidRow(tableOutput("dailyTable"))
     )
 )
 
@@ -234,7 +234,7 @@ server <- function(session, input, output) {
                     mutate(date_time = str_replace_all(date_time, "/", "-")) %>%
                     mutate(date_time = ymd_hms(date_time, tz = Sys.timezone())) %>%
                     mutate(`Sensor Glucose (mmol/L)` = as.numeric(`Sensor Glucose (mmol/L)`))  %>%
-                    drop_na(date_time)
+                    drop_na(date_time) 
                 
                 # Add row with missing glucose reading if time between reading is greater than 20 minutes
                 csv_with_time_added <- csv %>%
@@ -259,13 +259,16 @@ server <- function(session, input, output) {
                 csv
             })
             # Append the files together
-            do.call(bind_rows, files)
+           combined <- do.call(bind_rows, files) 
+           combined <- combined %>%
+               distinct(date_time, .keep_all = TRUE)
         }
     })
     
     # Data per day
     cgmData <- reactive({
         cgmData <- getData() %>%
+            mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
             mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
             distinct(date_time, .keep_all = TRUE) %>%
             group_by(date) %>%
@@ -279,6 +282,8 @@ server <- function(session, input, output) {
             )) %>%
             group_by(date) %>%
             add_tally() %>%
+            mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
+            filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
             mutate(percent_in_range = (sum(in_range, na.rm = TRUE) / n)) %>%
             filter(n > 200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
             distinct(date, .keep_all = TRUE) %>%
@@ -310,18 +315,17 @@ server <- function(session, input, output) {
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     # Blocks ####
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
-    
-    
     # Date range 1 data ####
     date1Data <- reactive({
         date1_data <- cgmData() %>%
             # mutate(Date = as.Date(Date, "%Y-%m-%d", tz=Sys.timezone())) %>%
+            dplyr::filter(date>=input$date1[1] & date<=input$date1[2]) %>%
             dplyr::filter(date >= input$date1[1] &
                               date <= input$date1[2]) %>%
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range >= 0.70))
+            mutate(count_70 = sum(percent_in_range>=0.70))
         
         date1_data
     })
@@ -329,12 +333,13 @@ server <- function(session, input, output) {
     # Date range 2 data ####
     date2Data <- reactive({
         date2_data <- cgmData() %>%
+            dplyr::filter(date>=input$date2[1] & date<=input$date2[2]) %>%
             dplyr::filter(date >= input$date2[1] &
                               date <= input$date2[2]) %>%
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range >= 0.70))
+            mutate(count_70 = sum(percent_in_range>=0.70))
         
         date2_data
     })
@@ -823,7 +828,7 @@ server <- function(session, input, output) {
         plot
     })
     
-    output$dailyTable <- renderText({
+    output$dailyTable <- renderTable({
         input$tabs
     })
     
@@ -911,7 +916,7 @@ server <- function(session, input, output) {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(cgmData(), file, row.names = FALSE)
+            write.csv(getData(), file, row.names = FALSE)
         }
     )
     
