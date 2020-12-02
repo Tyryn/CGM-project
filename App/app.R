@@ -56,9 +56,10 @@ ui <- dashboardPage(
                        ".csv")
         ),
         fluidRow(hr()),
-        sliderInput("target_range", "Set target blood glucose range (mmol/L)",
+        sliderInput("target_range", "Target blood glucose range (mmol/L)",
                     min = 0, max = 20, value = c(4,10), step = 0.5),
         fluidRow(hr()),
+        checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
         dateRangeInput(
             "date1",
             "Pick a date range",
@@ -93,28 +94,28 @@ ui <- dashboardPage(
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("daysData1")), box(textOutput("daysData2")))
+                             uiOutput("daysData_box")
                          ),
                          box(
                              title = "% days >70% in range",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("days_70_1")), box(textOutput("days_70_2")))
+                             uiOutput("days70_box")
                          ),
                          box(
                              title = "Best day of the week",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("best_day_1")), box(textOutput("best_day_2")))
+                             uiOutput("bestDay_box")
                          ),
                          box(
                              title = "Worst day of the week",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("worst_day_1")), box(textOutput("worst_day_2")))
+                             uiOutput("worstDay_box")
                          )
                      ),
                      fluidRow(
@@ -122,13 +123,15 @@ ui <- dashboardPage(
                              title = "Daily average low events",
                              width = 3,
                              solidHeader = TRUE,
-                             status = "primary"
+                             status = "primary",
+                             uiOutput("meanLow_box")
                          ),
                          box(
                              title = "Daily average high events",
                              width = 3,
                              solidHeader = TRUE,
-                             status = "primary"
+                             status = "primary",
+                             uiOutput("meanHigh_box")
                          ),
                          box(
                              title = "Hour with most low events",
@@ -149,28 +152,31 @@ ui <- dashboardPage(
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("period_00_07_1")), box(textOutput("period_00_07_2")))
+                             uiOutput("period00_07_box")
                          ),
                          box(
                              title = "% in range 7am-11am",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("period_07_11_1")), box(textOutput("period_07_11_2")))
+                             uiOutput("period07_11_box")
+                             # fluidRow(box(textOutput("period_07_11_1")), box(textOutput("period_07_11_2")))
                          ),
                          box(
                              title = "% in range 11am-6pm",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("period_11_18_1")), box(textOutput("period_11_18_2")))
+                             uiOutput("period11_18_box")
+                             # fluidRow(box(textOutput("period_11_18_1")), box(textOutput("period_11_18_2")))
                          ),
                          box(
                              title = "% in range 6pm-12am",
                              width = 3,
                              solidHeader = TRUE,
                              status = "primary",
-                             fluidRow(box(textOutput("period_18_00_1")), box(textOutput("period_18_00_2")))
+                             uiOutput("period18_00_box")
+                             # fluidRow(box(textOutput("period_18_00_1")), box(textOutput("period_18_00_2")))
                          )
                      ),
                      fluidRow(
@@ -205,7 +211,152 @@ server <- function(session, input, output) {
         shinyjs::toggle(id = "ma_period", condition = {"B" %in% input$tabs})
     })
     
-    # Clean and append the CSVs together ----
+    # Second calendar appears if comparison radio button selected
+    observe({
+        shinyjs::toggle(id = "date2", condition = {TRUE %in% input$date_comparison & "A" %in% input$tabs})
+        shinyjs::toggle(id = "date_comparison", condition = {"A" %in% input$tabs})
+    })
+    
+    
+#### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
+# Make blocks UI dynamic ####
+#### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
+# Need the second block to appear only when the user chooses to compare time periods
+    output$daysData_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("daysData1"), align="center"), box(textOutput("daysData2"), align="center"))
+            )
+        } else {
+            return(
+                box(textOutput("daysData1"), width = 12, align="center")
+            )
+        }
+    })
+    
+    output$days70_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("days_70_1"), align="center"), box(textOutput("days_70_2"), align="center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("days_70_1"), width = 12, align="center"))
+            )
+        }
+    })
+    
+    output$bestDay_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("best_day_1"), align = "center"), box(textOutput("best_day_2"), align = "center"))
+                )
+        } else {
+            return(
+                fluidRow(box(textOutput("best_day_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$worstDay_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("worst_day_1"), align = "center"), box(textOutput("worst_day_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("worst_day_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$meanLow_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("average_low_1"), align = "center"), box(textOutput("average_low_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("average_low_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$meanHigh_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("average_high_1"), align = "center"), box(textOutput("average_high_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("average_high_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$period00_07_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("period_00_07_1"), align = "center"), box(textOutput("period_00_07_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("period_00_07_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$period00_07_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("period_00_07_1"), align = "center"), box(textOutput("period_00_07_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("period_00_07_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$period07_11_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("period_07_11_1"), align = "center"), box(textOutput("period_07_11_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("period_07_11_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$period11_18_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("period_11_18_1"), align = "center"), box(textOutput("period_11_18_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("period_11_18_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$period18_00_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("period_18_00_1"), align = "center"), box(textOutput("period_18_00_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("period_18_00_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
+    # # Clean and append the CSVs together ----
+    #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     getData <- reactive({
         inFile <- input$infile
         if (is.null(inFile)) {
@@ -272,8 +423,9 @@ server <- function(session, input, output) {
             mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
             distinct(date_time, .keep_all = TRUE) %>%
             group_by(date) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            drop_na(`Sensor Glucose (mmol/L)`) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`)) %>%
+            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`)) %>%
             mutate(in_range = ifelse(
                 `Sensor Glucose (mmol/L)` >= input$target_range[1] &
                     `Sensor Glucose (mmol/L)` <= input$target_range[2],
@@ -285,8 +437,17 @@ server <- function(session, input, output) {
             mutate(percent_in_range = (sum(in_range, na.rm = TRUE)/n)) %>%
             filter(n>200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
             mutate(percent_in_range = (sum(in_range, na.rm = TRUE) / n)) %>%
-            filter(n > 200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
+            # Below is for the daily average low and high events
+            mutate(low_event = ifelse(`Sensor Glucose (mmol/L)`<input$target_range[1], 1, 0)) %>%
+            mutate(high_event = ifelse(`Sensor Glucose (mmol/L)`>input$target_range[2], 1, 0)) %>%
+            mutate(low_event_first = ifelse(low_event!=lag(low_event) & low_event==1, 1, 0)) %>%
+            mutate(high_event_first = ifelse(high_event!=lag(high_event) & high_event==1, 1, 0)) %>%
+            group_by(date) %>%
+            mutate(count = n()) %>%
+            mutate(low_events_day = sum(low_event_first)) %>%
+            mutate(high_events_day = sum(high_event_first)) %>%
             distinct(date, .keep_all = TRUE) %>%
+            ungroup() %>%
             # Below is for best and worst day of the week
             mutate(day_of_week = weekdays(date))
         cgmData
@@ -325,7 +486,11 @@ server <- function(session, input, output) {
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range>=0.70))
+            mutate(count_70 = sum(percent_in_range>=0.70)) %>%
+            # Average daily low and high events
+            mutate(low_events_day_average = round(mean(low_events_day, na.rm = TRUE),1)) %>%
+            mutate(high_events_day_average = round(mean(high_events_day, na.rm = TRUE),1))
+            
         
         date1_data
     })
@@ -339,7 +504,10 @@ server <- function(session, input, output) {
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
-            mutate(count_70 = sum(percent_in_range>=0.70))
+            mutate(count_70 = sum(percent_in_range>=0.70)) %>%
+            # Average daily low and high events
+            mutate(low_events_day_average = round(mean(low_events_day, na.rm = TRUE),1)) %>%
+            mutate(high_events_day_average = round(mean(high_events_day, na.rm = TRUE),1))
         
         date2_data
     })
@@ -503,6 +671,33 @@ server <- function(session, input, output) {
                        "% IR"
                    ))
         worst_day_percent
+    })
+    
+    ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
+    # Average low and high events per day ####
+    ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
+    
+    # Low
+    output$average_low_1 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date1Data()), "---"))
+        date1Data()$low_events_day_average[1]
+    })
+    output$average_low_2 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date2Data()), "---"))
+        date2Data()$low_events_day_average[1]
+    })
+    # High
+    output$average_high_1 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date1Data()), "---"))
+        date1Data()$high_events_day_average[1]
+    })
+    output$average_high_2 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date2Data()), "---"))
+        date2Data()$high_events_day_average[1]
     })
     
     ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
