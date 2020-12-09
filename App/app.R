@@ -30,6 +30,13 @@ accumulate_by <- function(dat, var) {
     dplyr::bind_rows(dats)
 }
 
+# Function to get the mode (for getting the hour with most lows and highs)
+getmode <- function(v) {
+    uniqv <- unique(v)
+    uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
 
 # Increase the file upload limit to 30mb
 options(shiny.maxRequestSize = 30 * 1024 ^ 2)
@@ -60,19 +67,9 @@ ui <- dashboardPage(
                     min = 0, max = 20, value = c(4,10), step = 0.5),
         fluidRow(hr()),
         checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
-        dateRangeInput(
-            "date1",
-            "Pick a date range",
-            start = Sys.Date() - 30,
-            end = Sys.Date(),
-            format = "yyyy-mm-dd"
-        ),
-        dateRangeInput(
-            "date2",
-            "Pick a date range to compare",
-            start = Sys.Date() - 61,
-            end = Sys.Date() - 31,
-            format = "yyyy-mm-dd"
+        uiOutput("dateInput_1"),
+        uiOutput(
+            "dateInput_2"
         ),
         radioButtons(
             "ma_period",
@@ -137,13 +134,15 @@ ui <- dashboardPage(
                              title = "Hour with most low events",
                              width = 3,
                              solidHeader = TRUE,
-                             status = "primary"
+                             status = "primary",
+                             uiOutput("hourLow_box")
                          ),
                          box(
                              title = "Hour with most high events",
                              width = 3,
                              solidHeader = TRUE,
-                             status = "primary"
+                             status = "primary",
+                             uiOutput("hourHigh_box")
                          )
                      ),
                      fluidRow(
@@ -218,6 +217,99 @@ server <- function(session, input, output) {
     })
     
     
+    # # Update the date ranges to the first and last dates in the cgm data
+    # observeEvent(input$infile, {
+    #     end_date <- max(cgmData()$date)
+    #     start_date <- end_date - 30
+    #     
+    #     updateDateRangeInput(session, inputId = "date1", start = start_date,
+    #                          end = end_date)
+    # })
+    # 
+    # observeEvent(input$infile, {
+    #     end_date <- max(cgmData()$date) - 31
+    #     start_date <- min(cgmData()$date)
+    #     
+    #     # if(difftime(end_date, start_date, units = "days")>)
+    #     updateDateRangeInput(session, inputId = "date2", start = start_date,
+    #                          end = end_date)
+    # })
+
+    
+    
+# Make date ranges dynamic ####
+    start_date <- reactive({
+        min(cgmData()$date)
+    })
+    end_date <- reactive({
+        max(cgmData()$date)
+    })
+    
+    output$dateInput_1 <- renderUI({
+        if(input$date_comparison == FALSE & !is.null(input$infile)) {
+
+             return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = start_date(),
+                    end = end_date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+        } else if(input$date_comparison == TRUE & !is.null(input$infile)) {
+            return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = start_date() - 30,
+                    end = end_date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+
+        } else if(is.null(input$infile)) {
+            return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = Sys.Date() - 30,
+                    end = Sys.Date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+        }
+    })
+    
+    output$dateInput_2 <- renderUI({
+        if(!is.null(input$infile) & input$date_comparison == TRUE) {
+            return(
+            dateRangeInput(
+                "date2",
+                "Pick a date range",
+                start = start_date() - 61,
+                end = end_date() - 31,
+                format = "yyyy-mm-dd"
+            )
+            )
+        } else if (input$date_comparison == TRUE){
+            return(
+                dateRangeInput(
+                    "date2",
+                    "Pick a date range",
+                    start = Sys.Date() - 61,
+                    end = Sys.Date() - 31,
+                    format = "yyyy-mm-dd"
+                )
+            )
+
+        } else {
+            return(
+                NULL
+            )
+        }
+
+    })
 #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
 # Make blocks UI dynamic ####
 #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
@@ -290,6 +382,30 @@ server <- function(session, input, output) {
         } else {
             return(
                 fluidRow(box(textOutput("average_high_1"), align = "center", width = 12))
+            )
+        }
+    })
+    
+    output$hourLow_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("hour_low_1"), align = "center"), box(textOutput("hour_low_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("hour_low_1"), align = "center", width = 12))
+            )
+        }
+    })
+
+    output$hourHigh_box <- renderUI({
+        if(input$date_comparison == TRUE){
+            return(
+                fluidRow(box(textOutput("hour_high_1"), align = "center"), box(textOutput("hour_high_2"), align = "center"))
+            )
+        } else {
+            return(
+                fluidRow(box(textOutput("hour_high_1"), align = "center", width = 12))
             )
         }
     })
@@ -420,7 +536,6 @@ server <- function(session, input, output) {
     cgmData <- reactive({
         cgmData <- getData() %>%
             mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
-            mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
             distinct(date_time, .keep_all = TRUE) %>%
             group_by(date) %>%
             drop_na(`Sensor Glucose (mmol/L)`) %>%
@@ -446,6 +561,30 @@ server <- function(session, input, output) {
             mutate(count = n()) %>%
             mutate(low_events_day = sum(low_event_first)) %>%
             mutate(high_events_day = sum(high_event_first)) %>%
+            mutate(hour = lubridate::hour(date_time)) %>%
+            # Redoing the *_event_first so there is another count if sequential events span across hours
+            mutate(low_event_first = ifelse((low_event!=lag(low_event) | hour!=lag(hour)) & 
+                                                low_event==1, 1, 0)) %>%
+            mutate(high_event_first = ifelse((high_event!=lag(high_event) | hour!=lag(hour)) & high_event==1, 1, 0)) %>%
+            
+            # For low blood sugars hours
+            # Identify the rows which need to have their hour kept (need to change up the low_event_first identifier later down the line)
+            mutate(low_event_hour = if_else(low_event_first==1, hour, NULL)) %>%
+            # Reshape, so that every hour within a group gets its own variable
+            group_by(date) %>%
+            mutate(seq_value = dense_rank(low_event_hour)) %>%
+            spread(seq_value, low_event_hour, sep = "_low_") %>%
+            fill(contains("seq_value_low"), .direction = "downup") %>%
+            ungroup() %>%
+            # For high blood sugars hours
+            mutate(high_event_hour = if_else(high_event_first==1, hour, NULL)) %>%
+            # Reshape, so that every hour within a group gets its own variable
+            group_by(date) %>%
+            mutate(seq_value = dense_rank(high_event_hour)) %>%
+            spread(seq_value, high_event_hour, sep = "_high_") %>%
+            fill(contains("seq_value_high"), .direction = "downup") %>%
+            ungroup() %>%
+            select(-c(contains("_NA"))) %>%
             distinct(date, .keep_all = TRUE) %>%
             ungroup() %>%
             # Below is for best and worst day of the week
@@ -453,24 +592,8 @@ server <- function(session, input, output) {
         cgmData
     })
     
-    # Update the date ranges to the first and last dates in the cgm data
-    observeEvent(input$infile, {
-        end_date <- max(cgmData()$date)
-        start_date <- end_date - 30
 
-        updateDateRangeInput(session, inputId = "date1", start = start_date,
-                             end = end_date)
-    })
     
-    observeEvent(input$infile, {
-        end_date <- max(cgmData()$date) - 31
-        start_date <- min(cgmData()$date)
-        
-        # if(difftime(end_date, start_date, units = "days")>)
-        updateDateRangeInput(session, inputId = "date2", start = start_date,
-                             end = end_date)
-    })
-
     
     
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
@@ -480,9 +603,7 @@ server <- function(session, input, output) {
     date1Data <- reactive({
         date1_data <- cgmData() %>%
             # mutate(Date = as.Date(Date, "%Y-%m-%d", tz=Sys.timezone())) %>%
-            dplyr::filter(date>=input$date1[1] & date<=input$date1[2]) %>%
-            dplyr::filter(date >= input$date1[1] &
-                              date <= input$date1[2]) %>%
+            dplyr::filter(date>=as.Date(input$date1[1]) & date<=as.Date(input$date1[2])) %>%
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
@@ -498,9 +619,7 @@ server <- function(session, input, output) {
     # Date range 2 data ####
     date2Data <- reactive({
         date2_data <- cgmData() %>%
-            dplyr::filter(date>=input$date2[1] & date<=input$date2[2]) %>%
-            dplyr::filter(date >= input$date2[1] &
-                              date <= input$date2[2]) %>%
+            dplyr::filter(date>= as.Date(input$date2[1]) & date<=as.Date(input$date2[2])) %>%
             ungroup() %>%
             mutate(n = n()) %>%
             # Count the number of days with over 70% in range
@@ -701,6 +820,77 @@ server <- function(session, input, output) {
     })
     
     ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
+    # Hour with most low and high events ####
+    ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
+    output$hour_low_1 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date1Data()), "---"))
+        df <- date1Data() %>%
+            select(starts_with("seq_value")) %>%
+            gather(low_event_number, hour_low, starts_with("seq_value_low")) %>%
+            select(hour_low) %>%
+            # gather(high_event_number, hour_high, starts_with("seq_value_high")) %>%
+            drop_na()
+        
+        most_lows_hour <- as.numeric(getmode(df$hour_low))
+        most_lows_hour_next <- most_lows_hour + 1
+        
+        print(paste0(sprintf("%02d", most_lows_hour),":00","-", 
+                     sprintf("%02d", most_lows_hour_next), ":00"))
+        
+    })
+    
+    output$hour_low_2 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date2Data()), "---"))
+        df <- date2Data() %>%
+            select(starts_with("seq_value")) %>%
+            gather(low_event_number, hour_low, starts_with("seq_value_low")) %>%
+            select(hour_low) %>%
+            drop_na()
+        
+        most_lows_hour <- as.numeric(getmode(df$hour_low))
+        most_lows_hour_next <- most_lows_hour + 1
+        
+        print(paste0(sprintf("%02d", most_lows_hour),":00","-", 
+                     sprintf("%02d", most_lows_hour_next), ":00"))
+    })
+    
+    output$hour_high_1 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date1Data()), "---"))
+        df <- date1Data() %>%
+            select(starts_with("seq_value")) %>%
+            gather(high_event_number, hour_high, starts_with("seq_value_high")) %>%
+            select(hour_high) %>%
+            drop_na()
+        
+        most_highs_hour <- as.numeric(getmode(df$hour_high))
+        most_highs_hour_next <- most_highs_hour + 1
+        
+        print(paste0(sprintf("%02d", most_highs_hour),":00","-",
+                     sprintf("%02d", most_highs_hour_next), ":00"))
+        # print(most_highs_hour)
+
+    })
+    
+    output$hour_high_2 <- renderText({
+        validate(need(!is.null(getData()), "---"))
+        validate(need(!is.null(date2Data()), "---"))
+        df <- date2Data() %>%
+            select(starts_with("seq_value")) %>%
+            gather(high_event_number, hour_high, starts_with("seq_value_high")) %>%
+            select(hour_high) %>%
+            drop_na()
+        
+        most_highs_hour <- as.numeric(getmode(df$hour_high))
+        most_highs_hour_next <- most_highs_hour + 1
+        
+        print(paste0(sprintf("%02d", most_highs_hour),":00","-", 
+                     sprintf("%02d", most_highs_hour_next), ":00"))
+    })
+    
+    ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
     # Time periods in range ####
     ### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #
     
@@ -898,6 +1088,13 @@ server <- function(session, input, output) {
     output$graph <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
         
+        # For the colored rectangles
+        if(input$date_comparison==TRUE){
+            switch=TRUE
+        } else {
+            switch=FALSE
+        }
+        
         p <-
             ggplot(cgmData(),
                    aes(
@@ -926,7 +1123,7 @@ server <- function(session, input, output) {
                 alpha = .1,
                 color = NA
             ) +
-            annotate(
+            {if(switch)annotate(
                 "rect",
                 xmin = input$date2[2],
                 xmax = input$date2[1],
@@ -935,7 +1132,7 @@ server <- function(session, input, output) {
                 fill = "pink",
                 alpha = .2,
                 color = NA
-            ) +
+            )} +
             # Create lollipops
             geom_segment(aes(
                 x = date,
@@ -954,6 +1151,7 @@ server <- function(session, input, output) {
                 labels = c("Low", "High"),
                 limits = c(0, 6)
             )
+        
         
         p <- ggplotly(p, tooltip = c("text"), source = "date") %>%
             event_register("plotly_click")
@@ -1024,7 +1222,7 @@ server <- function(session, input, output) {
     })
     
     output$dailyTable <- renderTable({
-        input$tabs
+        date1Data()
     })
     
     # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
@@ -1101,9 +1299,6 @@ server <- function(session, input, output) {
         
     })
         
-     
-    
-    
     
     # Download the data ####
     output$downloadData <- downloadHandler(
@@ -1111,7 +1306,7 @@ server <- function(session, input, output) {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(getData(), file, row.names = FALSE)
+            write.csv(cgmData(), file, row.names = FALSE)
         }
     )
     
