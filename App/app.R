@@ -1,5 +1,6 @@
 # App where csvs can be uploaded and the data analyzed (maybe something so that users can compare against each other?)
 
+# Load packages ####
 library(plotly)
 library(tidyverse)
 library(shiny)
@@ -9,7 +10,9 @@ library(scales)
 library(shinydashboard)
 library(zoo)
 library(shinyjs)
+library(shinybusy)
 
+# User created functions ####
 # Function to make first row column names
 header.true <- function(df) {
     names(df) <- as.character(unlist(df[1, ]))
@@ -47,6 +50,11 @@ options(shiny.maxRequestSize = 30 * 1024 ^ 2)
 ui <- dashboardPage(
     dashboardHeader(title = "CGM explorer"),
     dashboardSidebar(
+        # Spinner for when the app is busy with any operation
+        add_busy_spinner(spin = "fading-circle", 
+                         position =  "top-right", 
+                         margins = c(60,40),
+                         timeout = 200),
         useShinyjs(),
         # Tag so that the calendars don't get hidden by the title bar
         tags$div(tags$style(
@@ -82,6 +90,7 @@ ui <- dashboardPage(
         # Main panel to display table
     ),
     dashboardBody(
+        use_waiter(),
         tabsetPanel(id = "tabs",
             type = "tabs",
             tabPanel("Overview", value = "A",
@@ -188,9 +197,19 @@ ui <- dashboardPage(
                          solidHeader = TRUE,
                          status = "primary", width = 12,
                          plotlyOutput("cum_inrange"))),
-            tabPanel("Low and high glucose events", value = "C"),
-            tabPanel("Days of the week", value = "D"),
-            tabPanel("Time in range", value = "E")
+            tabPanel("Low and high glucose events", value = "C",
+                     box(title = "When low events are most frequent", 
+                         solidHeader = TRUE, status = "primary", 
+                         width = 12, plotlyOutput("low_density")),
+                     box(title = "When high events are most frequent",
+                         solidHeader = TRUE, status = "primary",
+                         width = 12, plotlyOutput("high_density"))),
+            tabPanel("Days of the week", value = "D",
+                     box(title = "Percent in range by day of week",
+                         solidHeader = TRUE, status = "primary",
+                         width = 12, plotlyOutput("day_of_week_bar"))),
+            tabPanel("Time in range", value = "E"),
+            tabPanel("Impact of exercise", value = "F")
         ),
         fluidRow(tableOutput("dailyTable"))
     )
@@ -202,18 +221,19 @@ ui <- dashboardPage(
 # Define server logic required to draw a histogram
 server <- function(session, input, output) {
     
+    
     # Hide the calendar if certain tabs selected ####
     
     observe({
-        shinyjs::toggle(id = "date1", condition = {"A" %in% input$tabs})
-        shinyjs::toggle(id = "date2", condition = {"A" %in% input$tabs})
+        shinyjs::toggle(id = "date1", condition = {"A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs})
+        shinyjs::toggle(id = "date2", condition = {"A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs})
         shinyjs::toggle(id = "ma_period", condition = {"B" %in% input$tabs})
     })
     
     # Second calendar appears if comparison radio button selected
     observe({
-        shinyjs::toggle(id = "date2", condition = {TRUE %in% input$date_comparison & "A" %in% input$tabs})
-        shinyjs::toggle(id = "date_comparison", condition = {"A" %in% input$tabs})
+        shinyjs::toggle(id = "date2", condition = {TRUE %in% input$date_comparison && ("A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs)})
+        shinyjs::toggle(id = "date_comparison", condition = {"A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs})
     })
     
     
@@ -247,7 +267,6 @@ server <- function(session, input, output) {
     
     output$dateInput_1 <- renderUI({
         if(input$date_comparison == FALSE & !is.null(input$infile)) {
-
              return(
                 dateRangeInput(
                     "date1",
@@ -262,7 +281,7 @@ server <- function(session, input, output) {
                 dateRangeInput(
                     "date1",
                     "Pick a date range",
-                    start = start_date() - 30,
+                    start = end_date() - 30,
                     end = end_date(),
                     format = "yyyy-mm-dd"
                 )
@@ -287,7 +306,7 @@ server <- function(session, input, output) {
             dateRangeInput(
                 "date2",
                 "Pick a date range",
-                start = start_date() - 61,
+                start = end_date() - 61,
                 end = end_date() - 31,
                 format = "yyyy-mm-dd"
             )
@@ -473,7 +492,8 @@ server <- function(session, input, output) {
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     # # Clean and append the CSVs together ----
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
-    getData <- reactive({
+    
+     getData <- reactive({
         inFile <- input$infile
         if (is.null(inFile)) {
             return(NULL)
@@ -712,7 +732,15 @@ server <- function(session, input, output) {
             group_by(day_of_week) %>%
             mutate(day_of_week_mean = mean(percent_in_range, na.rm = TRUE)) %>%
             distinct(day_of_week, .keep_all = TRUE) %>%
-            select(day_of_week, day_of_week_mean)
+            select(day_of_week, day_of_week_mean) %>%
+            mutate(day_of_week = factor(day_of_week,
+                                        levels = c("Monday",
+                                                   "Tuesday",
+                                                   "Wednesday",
+                                                   "Thursday",
+                                                   "Friday",
+                                                   "Saturday",
+                                                   "Sunday")))
         day_data
     })
     
@@ -1120,7 +1148,7 @@ server <- function(session, input, output) {
                 ymin = 0,
                 ymax = 1,
                 fill = "blue",
-                alpha = .1,
+                alpha = .2,
                 color = NA
             ) +
             {if(switch)annotate(
@@ -1129,7 +1157,7 @@ server <- function(session, input, output) {
                 xmax = input$date2[1],
                 ymin = 0,
                 ymax = 1,
-                fill = "pink",
+                fill = "red",
                 alpha = .2,
                 color = NA
             )} +
@@ -1222,7 +1250,15 @@ server <- function(session, input, output) {
     })
     
     output$dailyTable <- renderTable({
-        date1Data()
+        # dayData1 <- dayData1() %>%
+        #     select(day_of_week, day_of_week_mean) %>%
+        #     mutate(date_range = "Date range 1") 
+        # dayData2 <- dayData2() %>%
+        #     select(day_of_week, day_of_week_mean) %>%
+        #     mutate(date_range = "Date range 2")
+        # 
+        # dayData_merged <- bind_rows(dayData1, dayData2)
+        # dayData_merged
     })
     
     # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
@@ -1299,6 +1335,141 @@ server <- function(session, input, output) {
         
     })
         
+
+    # #### #### #### #### #### #### #### #### #### #### #### #### ###
+    # Density plot of low and high events ####
+    # #### #### #### #### #### #### #### #### #### #### #### #### ###
+    
+    
+    date_densityData <- reactive({
+        if(input$date_comparison == TRUE) {
+            df <-  getData() %>%
+                mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
+                mutate(date_rangeIndicator = ifelse(date>=as.Date(input$date1[1]) & date<=as.Date(input$date1[2]),
+                                                    "Date range 1",
+                                                    ifelse(date>=as.Date(input$date2[1]) & date<=as.Date(input$date2[2]),
+                                                           "Date range 2", "Not in range"))) %>%
+                dplyr::filter(date_rangeIndicator!="Not in range") %>%
+                mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+                mutate(low_event = ifelse(`Sensor Glucose (mmol/L)`<input$target_range[1], 1, 0)) %>%
+                mutate(high_event = ifelse(`Sensor Glucose (mmol/L)`>input$target_range[2], 1, 0)) 
+            
+        } else {
+            df <-  getData() %>%
+                mutate(date = as.Date(date_time, "%Y-%m-%d", tz=Sys.timezone())) %>%
+                dplyr::filter(date>=as.Date(input$date1[1]) & date<=as.Date(input$date1[2])) %>%
+                mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+                mutate(low_event = ifelse(`Sensor Glucose (mmol/L)`<input$target_range[1], 1, 0)) %>%
+                mutate(high_event = ifelse(`Sensor Glucose (mmol/L)`>input$target_range[2], 1, 0)) 
+        }
+       
+       df
+    })
+    
+    output$low_density <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        
+      df <-  date_densityData() %>%
+              filter(low_event==1)
+      
+     if(input$date_comparison == TRUE) {
+     plot <- ggplot(df, aes(x=Time)) + geom_density(aes(fill = date_rangeIndicator, 
+                                                    group = date_rangeIndicator), 
+                                                    alpha = 0.3) +
+          scale_fill_manual(values=c("blue", "red")) +
+          scale_x_datetime( labels=date_format("%H:%M", tz = Sys.timezone()),
+                            breaks = "2 hours") + theme_minimal() +
+          theme(axis.title.y = element_blank(), axis.title.x = element_blank(),
+                axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                panel.grid.minor.y = element_blank(), panel.grid.major.y = element_blank(),
+                legend.title = element_blank())
+     } else {
+         plot <- ggplot(df, aes(x=Time)) + geom_density(fill = "blue", alpha = 0.3) +
+             scale_x_datetime( labels=date_format("%H:%M", tz = Sys.timezone()),
+                               breaks = "2 hours") + theme_minimal() +
+             theme(axis.title.y = element_blank(), axis.title.x = element_blank(),
+                   axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                   panel.grid.minor.y = element_blank(), panel.grid.major.y = element_blank())
+         
+     }
+      
+     plot <- ggplotly(plot, tooltip="none")
+     plot
+    })
+    
+    output$high_density <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        
+        df <- date_densityData() %>%
+            filter(high_event==1)
+        
+        if(input$date_comparison == TRUE) {
+            plot <- ggplot(df, aes(x=Time)) + geom_density(aes(fill = date_rangeIndicator, 
+                                                               group = date_rangeIndicator), 
+                                                           alpha = 0.3) +
+                scale_fill_manual(values=c("blue", "red")) +
+                scale_x_datetime( labels=date_format("%H:%M", tz = Sys.timezone()),
+                                  breaks = "2 hours") + theme_minimal() +
+                theme(axis.title.y = element_blank(), axis.title.x = element_blank(),
+                      axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                      panel.grid.minor.y = element_blank(), panel.grid.major.y = element_blank(),
+                      legend.title = element_blank())
+        } else {
+            plot <- ggplot(df, aes(x=Time)) + geom_density(fill = "blue", alpha = 0.3) +
+                scale_x_datetime( labels=date_format("%H:%M", tz = Sys.timezone()),
+                                  breaks = "2 hours") + theme_minimal() +
+                theme(axis.title.y = element_blank(), axis.title.x = element_blank(),
+                      axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                      panel.grid.minor.y = element_blank(), panel.grid.major.y = element_blank())
+            
+        }
+        
+        plot <- ggplotly(plot, tooltip="none")
+        plot
+    })
+
+#### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
+# Percent in range, day of week ####    
+#### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #    
+
+    output$day_of_week_bar <- renderPlotly({
+        
+        if(input$date_comparison == FALSE) {
+        p <- ggplot(data = dayData1(),
+                    aes(x=day_of_week, y=day_of_week_mean,
+                        label=paste0(round(day_of_week_mean*100), "%"))) +
+            geom_bar(stat = "identity", fill = "blue", alpha = 0.5) + 
+            scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                               limits = c(0,1)) +
+            xlab("") + ylab("Percent in range") + theme_minimal() +
+            geom_text(size = 3)
+        } else {
+            dayData1 <- dayData1() %>%
+                select(day_of_week, day_of_week_mean) %>%
+                mutate(date_range = "Date range 1") 
+            dayData2 <- dayData2() %>%
+                select(day_of_week, day_of_week_mean) %>%
+                mutate(date_range = "Date range 2")
+            
+            dayData_merged <- bind_rows(dayData1, dayData2)
+            
+            p <- ggplot(data = dayData_merged,
+                        aes(x=day_of_week, y=day_of_week_mean, fill = date_range,
+                            label=paste0(round(day_of_week_mean*100), "%"))) +
+                geom_bar(position = "dodge" , stat = "identity", alpha = 0.5) + 
+                scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                                   limits = c(0,1)) +
+                xlab("") + ylab("Percent in range") + theme_minimal() +
+                geom_text(size = 3, position = position_dodge(0.9))
+    
+        }
+        
+        p <- ggplotly(p, tooltip="none")
+        p
+    })
+    
+  
+      
     
     # Download the data ####
     output$downloadData <- downloadHandler(
