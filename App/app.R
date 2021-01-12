@@ -11,12 +11,13 @@ library(shinydashboard)
 library(zoo)
 library(shinyjs)
 library(shinybusy)
+library(viridis)
 
 # User created functions ####
 # Function to make first row column names
 header.true <- function(df) {
-    names(df) <- as.character(unlist(df[1,]))
-    df[-1,]
+    names(df) <- as.character(unlist(df[1, ]))
+    df[-1, ]
 }
 
 # Function to get cumulative average of days in range
@@ -31,7 +32,7 @@ accumulate_by <- function(dat, var) {
     var <- lazyeval::f_eval(var, dat)
     lvls <- plotly:::getLevels(var)
     dats <- lapply(seq_along(lvls), function(x) {
-        cbind(dat[var %in% lvls[seq(1, x)],], frame = lvls[[x]])
+        cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
     })
     dplyr::bind_rows(dats)
 }
@@ -50,6 +51,8 @@ options(shiny.maxRequestSize = 30 * 1024 ^ 2)
 
 ############################ UI #######################################################################
 
+# Below done to make sidebar reactive with horizontal rules disappearing when appropriate
+
 ui <- dashboardPage(
     dashboardHeader(title = "CGM explorer"),
     dashboardSidebar(
@@ -67,6 +70,7 @@ ui <- dashboardPage(
         )),
         
         # Sidebar panel where users upload CSVs
+        fluidRow(hr(id = "horizontal_rule1")),
         fileInput(
             "infile",
             "Upload Carelink csv files (multiple possible)",
@@ -75,7 +79,15 @@ ui <- dashboardPage(
                        "text/comma-separated-values,text/plain",
                        ".csv")
         ),
-        fluidRow(hr()),
+        fluidRow(hr(id = "horizontal_rule2")),
+        radioButtons(
+            "bar_density",
+            choices = c("Bar graph",
+                        "Density plot"),
+            label = "Select data visualisation:"
+        ),
+        
+        fluidRow(hr(id = "horizontal_rule3")),
         sliderInput(
             "target_range",
             "Target blood glucose range (mmol/L)",
@@ -84,7 +96,10 @@ ui <- dashboardPage(
             value = c(4, 10),
             step = 0.5
         ),
-        checkboxInput("interquartile_range", "Display middle 50% of readings per time period"),
+        checkboxInput(
+            "interquartile_range",
+            "Display middle 50% of readings per time period"
+        ),
         fluidRow(hr()),
         checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
         uiOutput("dateInput_1"),
@@ -267,22 +282,24 @@ ui <- dashboardPage(
                     plotlyOutput("glucoseAverage_plot")
                 )
             ),
-            tabPanel("Impact of exercise", value = "F",
-                     box(
-                         title = "Average glucose readings 24 hours after exercise",
-                         solidHeader = TRUE,
-                         status = "primary",
-                         width = 12,
-                         plotlyOutput("average_exercise")
-                     ),
-                     box(
-                         title = "Glucose readings 12 hours after exercise",
-                         solidHeader = TRUE,
-                         status = "primary",
-                         width = 12,
-                         plotlyOutput("readings_exercise")
-                     )
-)
+            tabPanel(
+                "Impact of exercise",
+                value = "F",
+                box(
+                    title = "Average glucose readings 24 hours after exercise",
+                    solidHeader = TRUE,
+                    status = "primary",
+                    width = 12,
+                    plotlyOutput("average_exercise")
+                ),
+                box(
+                    title = "Glucose readings 12 hours after exercise",
+                    solidHeader = TRUE,
+                    status = "primary",
+                    width = 12,
+                    plotlyOutput("readings_exercise")
+                )
+            )
         ),
         fluidRow(tableOutput("dailyTable"))
     )
@@ -290,26 +307,34 @@ ui <- dashboardPage(
 
 
 ############################ Server #######################################################################
-
-# Define server logic required to draw a histogram
 server <- function(session, input, output) {
-    # Hide the calendar if certain tabs selected ####
+    # Hide the sidebar panel widgets dynamic if certain tabs selected ####
     
     observe({
         shinyjs::toggle(id = "date1", condition = {
-            "A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs || "F" %in% input$tabs
+            "A" %in% input$tabs ||
+                "C" %in% input$tabs ||
+                "D" %in% input$tabs || "E" %in% input$tabs || "F" %in% input$tabs
         })
         shinyjs::toggle(id = "date2", condition = {
-            "A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs
+            "A" %in% input$tabs ||
+                "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs
         })
         shinyjs::toggle(id = "ma_period", condition = {
             "B" %in% input$tabs
         })
         shinyjs::toggle(id = "target_range", condition = {
-            "A" %in% input$tabs || "B" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs
+            "A" %in% input$tabs ||
+                "B" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs
         })
         shinyjs::toggle(id = "interquartile_range", condition = {
             "E" %in% input$tabs || "F" %in% input$tabs
+        })
+        shinyjs::toggle(id = "bar_density", condition = {
+            "C" %in% input$tabs
+        })
+        shinyjs::toggle(id = "horizontal_rule2", condition = {
+            "C" %in% input$tabs
         })
     })
     
@@ -317,11 +342,15 @@ server <- function(session, input, output) {
     observe({
         shinyjs::toggle(id = "date2", condition = {
             TRUE %in% input$date_comparison &&
-                ("A" %in% input$tabs ||
-                     "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs)
+                (
+                    "A" %in% input$tabs ||
+                        "C" %in% input$tabs ||
+                        "D" %in% input$tabs || "E" %in% input$tabs
+                )
         })
         shinyjs::toggle(id = "date_comparison", condition = {
-            "A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs
+            "A" %in% input$tabs ||
+                "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs
         })
     })
     
@@ -635,11 +664,12 @@ server <- function(session, input, output) {
                 
                 # Get a data frame with the exercise data
                 csv_exercise <- csv
-                names(csv_exercise) <- csv_exercise %>% slice(5) %>% unlist()
-
+                names(csv_exercise) <-
+                    csv_exercise %>% slice(5) %>% unlist()
+                
                 csv_exercise <- csv_exercise %>%
                     select(Date, Time, `Event Marker`) %>%
-                    filter(`Event Marker`=="Exercise") %>%
+                    filter(`Event Marker` == "Exercise") %>%
                     # Convert to time date values
                     unite("date_time",
                           Date:Time,
@@ -648,7 +678,7 @@ server <- function(session, input, output) {
                     mutate(date_time = str_replace_all(date_time, "/", "-")) %>%
                     mutate(date_time = ymd_hms(date_time, tz = Sys.timezone())) %>%
                     drop_na(date_time)
-
+                
                 # Data frame with the glucose level data
                 csv <- csv %>%
                     # Keep only the rows with the sensor blood glucose data
@@ -682,7 +712,7 @@ server <- function(session, input, output) {
                     select(-time_elapsed)
                 
                 csv <- csv %>%
-                    dplyr::bind_rows(csv_exercise) %>% 
+                    dplyr::bind_rows(csv_exercise) %>%
                     dplyr::bind_rows(csv_with_time_added) %>%
                     arrange(date_time) %>%
                     # Fill in missing dates
@@ -952,7 +982,7 @@ server <- function(session, input, output) {
             ungroup() %>%
             group_by(day_of_week) %>%
             mutate(day_of_week_mean = mean(percent_in_range, na.rm = TRUE)) %>%
-            distinct(day_of_week, .keep_all = TRUE) %>% 
+            distinct(day_of_week, .keep_all = TRUE) %>%
             select(day_of_week, day_of_week_mean) %>%
             mutate(day_of_week = factor(
                 day_of_week,
@@ -1485,7 +1515,7 @@ server <- function(session, input, output) {
     })
     
     output$dailyTable <- renderTable({
-        NULL
+        lowBar_df()
     })
     
     # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
@@ -1503,7 +1533,7 @@ server <- function(session, input, output) {
                 select(date, percent_in_range) %>%
                 drop_na() %>%
                 mutate(in_range_cum_mean =  cumavg(percent_in_range)) %>%
-                accumulate_by( ~ date)
+                accumulate_by(~ date)
         } else {
             df <- cgmData() %>%
                 ungroup() %>%
@@ -1519,7 +1549,7 @@ server <- function(session, input, output) {
                         align = "right"
                     )
                 ) %>%
-                accumulate_by( ~ date)
+                accumulate_by(~ date)
         }
         df
     })
@@ -1570,8 +1600,9 @@ server <- function(session, input, output) {
     
     
     # #### #### #### #### #### #### #### #### #### #### #### #### ###
-    # Density plot of low and high events ####
+    # Bar graph and density plot of low and high events ####
     # #### #### #### #### #### #### #### #### #### #### #### #### ###
+    
     
     
     date_densityData <- reactive({
@@ -1601,8 +1632,7 @@ server <- function(session, input, output) {
                     1,
                     0
                 ))
-            
-        } else {
+        } else if (input$date_comparison == FALSE)  {
             df <-  getData() %>%
                 mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
                 dplyr::filter(date >= as.Date(input$date1[1]) &
@@ -1617,11 +1647,45 @@ server <- function(session, input, output) {
                     `Sensor Glucose (mmol/L)` > input$target_range[2],
                     1,
                     0
-                ))
+                )) %>%
+                mutate(date_rangeIndicator = "Date range 1")
         }
         
         df
     })
+    
+    lowBar_df <- reactive({
+        df <- date_densityData() %>%
+            # Add time periods of 30 minute periods for the bars
+            mutate(Time_round = lubridate::round_date(Time, "30 minutes")) %>%
+            group_by(Date, Time_round, date_rangeIndicator) %>%
+            filter(low_event == 1) %>%
+            distinct(Time_round, .keep_all = TRUE) %>%
+            ungroup() %>%
+            group_by(Time_round, date_rangeIndicator) %>%
+            add_count(low_event, name = "low_event_count") %>%
+            distinct(Time_round, .keep_all = TRUE) %>%
+            mutate(Time_round = as.POSIXct(Time_round, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+            ungroup()
+        
+    })
+    
+    highBar_df <- reactive({
+        df <- date_densityData() %>%
+            # Add time periods of 30 minute periods for the bars
+            mutate(Time_round = lubridate::round_date(Time, "30 minutes")) %>%
+            group_by(Date, Time_round, date_rangeIndicator) %>%
+            filter(high_event == 1) %>%
+            distinct(Time_round, .keep_all = TRUE) %>%
+            ungroup() %>%
+            group_by(Time_round, date_rangeIndicator) %>%
+            add_count(low_event, name = "high_event_count") %>%
+            distinct(Time_round, .keep_all = TRUE) %>%
+            mutate(Time_round = as.POSIXct(Time_round, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+            ungroup()
+        
+    })
+    
     
     output$low_density <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
@@ -1629,7 +1693,9 @@ server <- function(session, input, output) {
         df <-  date_densityData() %>%
             filter(low_event == 1)
         
-        if (input$date_comparison == TRUE) {
+        
+        if (input$date_comparison == TRUE &
+            input$bar_density == "Density plot") {
             plot <-
                 ggplot(df, aes(x = Time)) + geom_density(aes(fill = date_rangeIndicator,
                                                              group = date_rangeIndicator),
@@ -1646,7 +1712,8 @@ server <- function(session, input, output) {
                     panel.grid.major.y = element_blank(),
                     legend.title = element_blank()
                 )
-        } else {
+        } else if (input$date_comparison == FALSE &
+                   input$bar_density == "Density plot") {
             plot <-
                 ggplot(df, aes(x = Time)) + geom_density(fill = "blue", alpha = 0.3) +
                 scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
@@ -1660,6 +1727,35 @@ server <- function(session, input, output) {
                     panel.grid.major.y = element_blank()
                 )
             
+        } else if (input$date_comparison == FALSE &
+                   input$bar_density == "Bar graph") {
+            plot <- ggplot(lowBar_df(),
+                           aes(x = Time_round, y = low_event_count)) +
+                geom_bar(stat = "identity",
+                         fill = "blue",
+                         alpha = 0.5)  +
+                scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
+                                 breaks = "2 hours") + theme_minimal() +
+                ylab("Number of low events") + scale_y_continuous(breaks = pretty_breaks()) +
+                theme(axis.title.x = element_blank())
+        } else {
+            plot <- ggplot(
+                lowBar_df(),
+                aes(
+                    x = Time_round,
+                    y = low_event_count,
+                    fill = date_rangeIndicator
+                )
+            ) +
+                geom_bar(stat = "identity",
+                         position = "dodge",
+                         alpha = 0.5)  +
+                scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
+                                 breaks = "2 hours") + theme_minimal() +
+                scale_fill_manual(values = c("blue", "red")) +
+                ylab("Number of low events") + scale_y_continuous(breaks = pretty_breaks()) +
+                theme(axis.title.x = element_blank(),
+                      legend.title = element_blank())
         }
         
         plot <- ggplotly(plot, tooltip = "none")
@@ -1672,7 +1768,8 @@ server <- function(session, input, output) {
         df <- date_densityData() %>%
             filter(high_event == 1)
         
-        if (input$date_comparison == TRUE) {
+        if (input$date_comparison == TRUE &
+            input$bar_density == "Density plot") {
             plot <-
                 ggplot(df, aes(x = Time)) + geom_density(aes(fill = date_rangeIndicator,
                                                              group = date_rangeIndicator),
@@ -1689,7 +1786,8 @@ server <- function(session, input, output) {
                     panel.grid.major.y = element_blank(),
                     legend.title = element_blank()
                 )
-        } else {
+        } else if (input$date_comparison == FALSE &
+                   input$bar_density == "Density plot") {
             plot <-
                 ggplot(df, aes(x = Time)) + geom_density(fill = "blue", alpha = 0.3) +
                 scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
@@ -1703,6 +1801,36 @@ server <- function(session, input, output) {
                     panel.grid.major.y = element_blank()
                 )
             
+        } else if (input$date_comparison == FALSE &
+                   input$bar_density == "Bar graph") {
+            plot <-
+                ggplot(highBar_df(),
+                       aes(x = Time_round, y = high_event_count)) +
+                geom_bar(stat = "identity",
+                         fill = "blue",
+                         alpha = 0.5)  +
+                scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
+                                 breaks = "2 hours") + theme_minimal() +
+                ylab("Number of high events") + scale_y_continuous(breaks = pretty_breaks()) +
+                theme(axis.title.x = element_blank())
+        } else {
+            plot <- ggplot(
+                highBar_df(),
+                aes(
+                    x = Time_round,
+                    y = high_event_count,
+                    fill = date_rangeIndicator
+                )
+            ) +
+                geom_bar(stat = "identity",
+                         position = "dodge",
+                         alpha = 0.5)  +
+                scale_x_datetime(labels = date_format("%H:%M", tz = Sys.timezone()),
+                                 breaks = "2 hours") + theme_minimal() +
+                scale_fill_manual(values = c("blue", "red")) +
+                ylab("Number of high events") + scale_y_continuous(breaks = pretty_breaks()) +
+                theme(axis.title.x = element_blank(),
+                      legend.title = element_blank())
         }
         
         plot <- ggplotly(plot, tooltip = "none")
@@ -1714,6 +1842,7 @@ server <- function(session, input, output) {
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     
     output$day_of_week_bar <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
         if (input$date_comparison == FALSE) {
             p <- ggplot(data = dayData1(),
                         aes(
@@ -1777,23 +1906,31 @@ server <- function(session, input, output) {
         
         if (input$date_comparison == FALSE) {
             df <- getData() %>%
-                mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>% 
+                mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
                 filter(date >= as.Date(input$date1[1]) &
                            date <= as.Date(input$date1[2])) %>%
                 mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
                 mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
                 group_by(Time_round) %>%
                 mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
-                mutate(pLow = quantile(`Sensor Glucose (mmol/L)`, probs=0.25, na.rm=TRUE)) %>%
-                mutate(pHigh = quantile(`Sensor Glucose (mmol/L)`, probs=0.75, na.rm=TRUE)) %>%
+                mutate(pLow = quantile(
+                    `Sensor Glucose (mmol/L)`,
+                    probs = 0.25,
+                    na.rm = TRUE
+                )) %>%
+                mutate(pHigh = quantile(
+                    `Sensor Glucose (mmol/L)`,
+                    probs = 0.75,
+                    na.rm = TRUE
+                )) %>%
                 distinct(Time_round, .keep_all = TRUE) %>%
-                ungroup() %>% 
-                drop_na(Time_round) %>% 
+                ungroup() %>%
+                drop_na(Time_round) %>%
                 arrange(Time_round)
         } else {
             df <- getData() %>%
                 mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
-                mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>% 
+                mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
                 mutate(
                     date_rangeIndicator = ifelse(
                         Date >= as.Date(input$date1[1]) & Date <= as.Date(input$date1[2]),
@@ -1806,13 +1943,21 @@ server <- function(session, input, output) {
                     )
                 ) %>%
                 dplyr::filter(date_rangeIndicator != "Not in range") %>%
-                group_by(Time_round, date_rangeIndicator) %>% 
-                mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>% 
-                mutate(pLow = quantile(`Sensor Glucose (mmol/L)`, probs=0.25, na.rm=TRUE)) %>% 
-                mutate(pHigh = quantile(`Sensor Glucose (mmol/L)`, probs=0.75, na.rm=TRUE)) %>% 
+                group_by(Time_round, date_rangeIndicator) %>%
+                mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+                mutate(pLow = quantile(
+                    `Sensor Glucose (mmol/L)`,
+                    probs = 0.25,
+                    na.rm = TRUE
+                )) %>%
+                mutate(pHigh = quantile(
+                    `Sensor Glucose (mmol/L)`,
+                    probs = 0.75,
+                    na.rm = TRUE
+                )) %>%
                 distinct(Time_round, date_rangeIndicator, .keep_all = TRUE) %>%
-                drop_na(Time_round) %>% 
-                ungroup() %>% 
+                drop_na(Time_round) %>%
+                ungroup() %>%
                 arrange(Time_round)
         }
     })
@@ -1822,108 +1967,170 @@ server <- function(session, input, output) {
     output$glucoseAverage_plot <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
         
-        if(input$interquartile_range==TRUE) {
-        if (input$date_comparison == FALSE ) {
-
-        dailyAverage_df() %>%
-            plot_ly(x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
-                    name = "Average sensor glucose",
-                    hoverinfo = 'text',
-                    text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                   "<br>",
-                                   "Sensor glucose: ",
-                                   round(glucose_mean, 1))) %>% 
-            add_ribbons(data=dailyAverage_df(),
-                        ymin = ~pLow,
-                        ymax = ~pHigh,
+        if (input$interquartile_range == TRUE) {
+            if (input$date_comparison == FALSE) {
+                dailyAverage_df() %>%
+                    plot_ly(
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        type = 'scatter',
+                        mode = 'lines',
+                        name = "Average sensor glucose",
+                        hoverinfo = 'text',
+                        text = ~ paste0(
+                            "Time: ",
+                            strftime(Time_round, format = "%H:%M"),
+                            "<br>",
+                            "Sensor glucose: ",
+                            round(glucose_mean, 1)
+                        )
+                    ) %>%
+                    add_ribbons(
+                        data = dailyAverage_df(),
+                        ymin = ~ pLow,
+                        ymax = ~ pHigh,
                         line = list(color = 'rgba(7, 164, 181, 0.05)'),
                         fillcolor = 'rgba(0, 0, 225, 0.3)',
-                        name = 'Middle 50% of readings per time period') %>% 
-            layout(yaxis = list(
-                title="Sensor glucose (mmol/L)",
-                ticklen = 5
-            ),
-            xaxis = list(type="date", tickformat = "%H:%M", title = ''))  
-
-        } else {
-
-            df_1 <- dailyAverage_df() %>% filter(date_rangeIndicator=="Date range 1")
-            df_2 <- dailyAverage_df() %>% filter(date_rangeIndicator=="Date range 2")
-            
-            df_1 %>%
-                plot_ly(x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
+                        name = 'Middle 50% of readings per time period'
+                    ) %>%
+                    layout(
+                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                                     ticklen = 5),
+                        xaxis = list(
+                            type = "date",
+                            tickformat = "%H:%M",
+                            title = ''
+                        )
+                    )
+                
+            } else {
+                df_1 <-
+                    dailyAverage_df() %>% filter(date_rangeIndicator == "Date range 1")
+                df_2 <-
+                    dailyAverage_df() %>% filter(date_rangeIndicator == "Date range 2")
+                
+                df_1 %>%
+                    plot_ly(
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        type = 'scatter',
+                        mode = 'lines',
                         legendgroup = 'group1',
                         name = "Date range 1 \nAverage sensor glucose",
                         hoverinfo = 'text',
-                        text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                       "<br>",
-                                       "Sensor glucose: ",
-                                       round(glucose_mean, 1))) %>% 
-                add_ribbons(data=df_1,
-                            ymin = ~pLow,
-                            ymax = ~pHigh,
-                            line = list(color = 'rgba(7, 164, 181, 0.05)'),
-                            fillcolor = 'rgba(7, 164, 181, 0.2)',
-                            legendgroup = 'group1',
-                            name = 'Date range 1 \nMiddle 50% of readings per time period') %>% 
-                add_lines(data=df_2, x=~Time_round, y=~glucose_mean,
-                          legendgroup = 'group2',
-                          name = "Date range 2 \nAverage sensor glucose",
-                          line = list(color = 'rgba(255, 0, 0, 0.8)')) %>% 
-                add_ribbons(data=df_2,
-                            ymin = ~pLow,
-                            ymax = ~pHigh,
-                            line = list(color = 'rgba(255, 0, 0, 0.05)'),
-                            fillcolor = 'rgba(255, 0, 0, 0.2)',
-                            legendgroup = 'group2',
-                            name = 'Date range 2 \nMiddle 50% of readings per time period') %>% 
-                layout(yaxis = list(
-                    title="Sensor glucose (mmol/L)",
-                    ticklen = 5
-                ),
-                xaxis = list(type="date", tickformat = "%H:%M", title = ''))  
-
-        }
-        } else {
-            if (input$date_comparison == FALSE ) {
+                        text = ~ paste0(
+                            "Time: ",
+                            strftime(Time_round, format = "%H:%M"),
+                            "<br>",
+                            "Sensor glucose: ",
+                            round(glucose_mean, 1)
+                        )
+                    ) %>%
+                    add_ribbons(
+                        data = df_1,
+                        ymin = ~ pLow,
+                        ymax = ~ pHigh,
+                        line = list(color = 'rgba(7, 164, 181, 0.05)'),
+                        fillcolor = 'rgba(7, 164, 181, 0.2)',
+                        legendgroup = 'group1',
+                        name = 'Date range 1 \nMiddle 50% of readings per time period'
+                    ) %>%
+                    add_lines(
+                        data = df_2,
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        legendgroup = 'group2',
+                        name = "Date range 2 \nAverage sensor glucose",
+                        line = list(color = 'rgba(255, 0, 0, 0.8)')
+                    ) %>%
+                    add_ribbons(
+                        data = df_2,
+                        ymin = ~ pLow,
+                        ymax = ~ pHigh,
+                        line = list(color = 'rgba(255, 0, 0, 0.05)'),
+                        fillcolor = 'rgba(255, 0, 0, 0.2)',
+                        legendgroup = 'group2',
+                        name = 'Date range 2 \nMiddle 50% of readings per time period'
+                    ) %>%
+                    layout(
+                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                                     ticklen = 5),
+                        xaxis = list(
+                            type = "date",
+                            tickformat = "%H:%M",
+                            title = ''
+                        )
+                    )
                 
+            }
+        } else {
+            if (input$date_comparison == FALSE) {
                 dailyAverage_df() %>%
-                    plot_ly(x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
-                            name = "Average sensor glucose",
-                            hoverinfo = 'text',
-                            text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                           "<br>",
-                                           "Sensor glucose: ",
-                                           round(glucose_mean, 1))) %>% 
-                    layout(yaxis = list(
-                        title="Sensor glucose (mmol/L)",
-                        ticklen = 5
-                    ),
-                    xaxis = list(type="date", tickformat = "%H:%M", title = ''))  
+                    plot_ly(
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        type = 'scatter',
+                        mode = 'lines',
+                        name = "Average sensor glucose",
+                        hoverinfo = 'text',
+                        text = ~ paste0(
+                            "Time: ",
+                            strftime(Time_round, format = "%H:%M"),
+                            "<br>",
+                            "Sensor glucose: ",
+                            round(glucose_mean, 1)
+                        )
+                    ) %>%
+                    layout(
+                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                                     ticklen = 5),
+                        xaxis = list(
+                            type = "date",
+                            tickformat = "%H:%M",
+                            title = ''
+                        )
+                    )
                 
             } else {
-                
-                df_1 <- dailyAverage_df() %>% filter(date_rangeIndicator=="Date range 1")
-                df_2 <- dailyAverage_df() %>% filter(date_rangeIndicator=="Date range 2")
+                df_1 <-
+                    dailyAverage_df() %>% filter(date_rangeIndicator == "Date range 1")
+                df_2 <-
+                    dailyAverage_df() %>% filter(date_rangeIndicator == "Date range 2")
                 
                 df_1 %>%
-                    plot_ly(x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
-                            legendgroup = 'group1',
-                            name = "Date range 1 \nAverage sensor glucose",
-                            hoverinfo = 'text',
-                            text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                           "<br>",
-                                           "Sensor glucose: ",
-                                           round(glucose_mean, 1))) %>% 
-                    add_lines(data=df_2, x=~Time_round, y=~glucose_mean,
-                              legendgroup = 'group2',
-                              name = "Date range 2 \nAverage sensor glucose",
-                              line = list(color = 'rgba(255, 0, 0, 0.8)')) %>% 
-                    layout(yaxis = list(
-                        title="Sensor glucose (mmol/L)",
-                        ticklen = 5
-                    ),
-                    xaxis = list(type="date", tickformat = "%H:%M", title = ''))  
+                    plot_ly(
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        type = 'scatter',
+                        mode = 'lines',
+                        legendgroup = 'group1',
+                        name = "Date range 1 \nAverage sensor glucose",
+                        hoverinfo = 'text',
+                        text = ~ paste0(
+                            "Time: ",
+                            strftime(Time_round, format = "%H:%M"),
+                            "<br>",
+                            "Sensor glucose: ",
+                            round(glucose_mean, 1)
+                        )
+                    ) %>%
+                    add_lines(
+                        data = df_2,
+                        x =  ~ Time_round,
+                        y =  ~ glucose_mean,
+                        legendgroup = 'group2',
+                        name = "Date range 2 \nAverage sensor glucose",
+                        line = list(color = 'rgba(255, 0, 0, 0.8)')
+                    ) %>%
+                    layout(
+                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                                     ticklen = 5),
+                        xaxis = list(
+                            type = "date",
+                            tickformat = "%H:%M",
+                            title = ''
+                        )
+                    )
                 
             }
         }
@@ -1937,132 +2144,334 @@ server <- function(session, input, output) {
     exercise_df <- reactive({
         validate(need(!is.null(getData()), "No data uploaded yet"))
         
-        df_exercise <- getData() %>% 
+        df_exercise <- getData() %>%
             # Create data frame that consists of the blood glucose readings 12 hours after exercise
-            # mutate(`Event Marker` = replace_na(`Event Marker`, "Nothing")) %>% 
-            mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>% 
+            # mutate(`Event Marker` = replace_na(`Event Marker`, "Nothing")) %>%
+            mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
             filter(date >= as.Date(input$date1[1]) &
-                              date <= as.Date(input$date1[2])) %>%
-            mutate(exercise_group = ifelse(`Event Marker`=="Exercise", seq(1,10000000, by=1), NA)) %>% 
-            fill(exercise_group, .direction = "down") %>% 
+                       date <= as.Date(input$date1[2])) %>%
+            mutate(exercise_group = ifelse(`Event Marker` == "Exercise", seq(1, 10000000, by =
+                                                                                 1), NA)) %>%
+            fill(exercise_group, .direction = "down") %>%
             # By group, check if the time is within twelve hours of the first observations
-            group_by(exercise_group) %>% 
-            mutate(exercise_time = first(date_time)) %>% 
-            mutate(exercise_within_time_12 = if_else(difftime(date_time, exercise_time, units = "hours")<=12,
-                                                  1,0)) %>% 
-            mutate(exercise_within_time_24 = if_else(difftime(date_time, exercise_time, units = "hours")<=24,
-                                                     1,0))
+            group_by(exercise_group) %>%
+            mutate(exercise_time = first(date_time)) %>%
+            mutate(exercise_within_time_12 = if_else(
+                difftime(date_time, exercise_time, units = "hours") <= 12,
+                1,
+                0
+            )) %>%
+            mutate(exercise_within_time_24 = if_else(
+                difftime(date_time, exercise_time, units = "hours") <= 24,
+                1,
+                0
+            ))
     })
     
     exercise_df_12 <- reactive({
-        exercise_df() %>% 
-            filter(exercise_within_time_12==1 & !is.na(exercise_group) & is.na(`Event Marker`)) %>% 
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`, exercise_group) %>% 
+        exercise_df() %>%
+            filter(exercise_within_time_12 == 1 &
+                       !is.na(exercise_group) & is.na(`Event Marker`)) %>%
+            select(date_time,
+                   Date,
+                   Time,
+                   `Sensor Glucose (mmol/L)`,
+                   exercise_group) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
-            mutate(Time_round = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>% 
-            mutate(glucose_mean = `Sensor Glucose (mmol/L)`) %>% 
+            mutate(Time_round = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+            mutate(glucose_mean = `Sensor Glucose (mmol/L)`) %>%
             # Add extra row to the end of each group so that there are gaps in the line charts
-            mutate(glucose_mean= c(glucose_mean[-n()], NA)) %>% 
-            arrange(Time_round) %>% 
+            mutate(glucose_mean = c(glucose_mean[-n()], NA)) %>%
+            arrange(Time_round) %>%
             group_by(exercise_group)
     })
     
-    output$readings_exercise <- renderPlotly({
-        validate(need(!is.null(getData()), "No data uploaded yet"))
-        validate(need(!is.null(exercise_df()), "No data uploaded yet"))
-        
-        dat <- highlight_key(exercise_df_12(), key=~exercise_group)
-
-        plot<-
-            plot_ly() %>%
-            add_lines(data=dailyAverage_df(), x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
-                      name = "Average sensor glucose", line = list(color = "black",widthh=0.5, dash="dot"),
-                      hoverinfo = 'text', showlegend = TRUE,
-                      text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                     "<br>",
-                                     "Sensor glucose: ",
-                                     round(glucose_mean, 1))) %>% 
-            add_lines(data=dat, x=~Time_round, y=~glucose_mean,
-                      connectgaps = FALSE, showlegend = FALSE, 
-                      hoverinfo = 'text', 
-                      text = ~paste0("Date: ", as.character(Date),
-                                     "<br>",
-                                     "Time: ", strftime(Time_round, format = "%H:%M"),
-                                     "<br>",
-                                     "Sensor glucose: ",
-                                     round(glucose_mean, 1))) %>% 
-            highlight(data=dat, on = "plotly_hover", off = "plotly_doubleclick", opacityDim = 0.5) %>% 
-            layout(yaxis = list(
-                title="Sensor glucose (mmol/L)",
-                ticklen = 5
-            ), showlegend = TRUE,
-            xaxis = list(type="date", tickformat = "%H:%M", title = ''))
-        plot
-
-    })
-    
     exercise_df_24 <- reactive({
-        exercise_df() %>% 
-            filter(exercise_within_time_24==1 & !is.na(exercise_group) & is.na(`Event Marker`)) %>% 
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>% 
+        exercise_df() %>%
+            filter(exercise_within_time_24 == 1 &
+                       !is.na(exercise_group) & is.na(`Event Marker`)) %>%
+            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
             mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
-            group_by(Time_round) %>% 
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>% 
-            mutate(pLow = quantile(`Sensor Glucose (mmol/L)`, probs=0.25, na.rm=TRUE)) %>% 
-            mutate(pHigh = quantile(`Sensor Glucose (mmol/L)`, probs=0.75, na.rm=TRUE)) %>% 
+            group_by(Time_round) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(pLow = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.25,
+                na.rm = TRUE
+            )) %>%
+            mutate(pHigh = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.75,
+                na.rm = TRUE
+            )) %>%
             distinct(Time_round, .keep_all = TRUE) %>%
-            drop_na(Time_round) %>% 
-            ungroup() %>% 
+            drop_na(Time_round) %>%
+            ungroup() %>%
             arrange(Time_round)
         
     })
     
     no_exerciseAverage_df <-  reactive({
-        exercise_df() %>% 
-            filter(exercise_within_time_24!=1) %>% 
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>% 
+        exercise_df() %>%
+            filter(exercise_within_time_24 != 1) %>%
+            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
             mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
-            group_by(Time_round) %>% 
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>% 
-            mutate(pLow = quantile(`Sensor Glucose (mmol/L)`, probs=0.25, na.rm=TRUE)) %>% 
-            mutate(pHigh = quantile(`Sensor Glucose (mmol/L)`, probs=0.75, na.rm=TRUE)) %>% 
+            group_by(Time_round) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(pLow = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.25,
+                na.rm = TRUE
+            )) %>%
+            mutate(pHigh = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.75,
+                na.rm = TRUE
+            )) %>%
             distinct(Time_round, .keep_all = TRUE) %>%
-            drop_na(Time_round) %>% 
-            ungroup() %>% 
+            drop_na(Time_round) %>%
+            ungroup() %>%
             arrange(Time_round)
     })
+    
+    
+    output$readings_exercise <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        validate(need(!is.null(exercise_df()), "No data uploaded yet"))
+        
+        dat <- highlight_key(exercise_df_12(), key =  ~ exercise_group)
+        
+        plot <-
+            plot_ly() %>%
+            add_lines(
+                data = no_exerciseAverage_df(),
+                x =  ~ Time_round,
+                y =  ~ glucose_mean,
+                type = 'scatter',
+                mode = 'lines',
+                name = "Average sensor glucose - \nno exercise",
+                line = list(
+                    color = "black",
+                    widthh = 0.5,
+                    dash = "dot"
+                ),
+                hoverinfo = 'text',
+                showlegend = TRUE,
+                text = ~ paste0(
+                    "Time: ",
+                    strftime(Time_round, format = "%H:%M"),
+                    "<br>",
+                    "Sensor glucose: ",
+                    round(glucose_mean, 1)
+                )
+            ) %>%
+            add_lines(
+                data = dat,
+                x =  ~ Time_round,
+                y =  ~ glucose_mean,
+                connectgaps = FALSE,
+                showlegend = FALSE,
+                hoverinfo = 'text',
+                line = list(color = 'rgba(0, 0, 225, 0.8)'),
+                text = ~ paste0(
+                    "Date: ",
+                    as.character(Date),
+                    "<br>",
+                    "Time: ",
+                    strftime(Time_round, format = "%H:%M"),
+                    "<br>",
+                    "Sensor glucose: ",
+                    round(glucose_mean, 1)
+                )
+            ) %>%
+            highlight(
+                data = dat,
+                on = "plotly_hover",
+                off = "plotly_doubleclick",
+                opacityDim = 0.5
+            ) %>%
+            layout(
+                yaxis = list(title = "Sensor glucose (mmol/L)",
+                             ticklen = 5),
+                showlegend = TRUE,
+                xaxis = list(
+                    type = "date",
+                    tickformat = "%H:%M",
+                    title = ''
+                )
+            )
+        plot
+        
+    })
+    
     
     
     
     output$average_exercise <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
-
-        plot<-
-            plot_ly() %>%
-            add_lines(data=no_exerciseAverage_df(), x=~Time_round, y=~glucose_mean, type = 'scatter', mode = 'lines',
-                      name = "Average sensor glucose - no exercise", line = list(color = "black",widthh=0.5, dash="dot"),
-                      hoverinfo = 'text', showlegend = TRUE,
-                      text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                     "<br>",
-                                     "Sensor glucose: ",
-                                     round(glucose_mean, 1))) %>% 
-            add_lines(data=exercise_df_24(), x=~Time_round, y=~glucose_mean,
-                      connectgaps = FALSE, showlegend = TRUE, 
-                      hoverinfo = 'text',  name = "Average sensor glucose - exercise",
-                      text = ~paste0("Time: ", strftime(Time_round, format = "%H:%M"),
-                                     "<br>",
-                                     "Sensor glucose: ", 
-                                     round(glucose_mean, 1))) %>% 
-            highlight(data=exercise_df_24(), on = "plotly_hover", off = "plotly_doubleclick", opacityDim = 0.5) %>% 
-            layout(yaxis = list(
-                title="Sensor glucose (mmol/L)",
-                ticklen = 5
-            ), showlegend = TRUE,
-            xaxis = list(type="date", tickformat = "%H:%M", title = ''))
+        
+        if (input$interquartile_range == TRUE) {
+            plot <-
+                plot_ly() %>%
+                add_lines(
+                    data = no_exerciseAverage_df(),
+                    x =  ~ Time_round,
+                    y =  ~ glucose_mean,
+                    type = 'scatter',
+                    mode = 'lines',
+                    name = "Average sensor glucose - no exercise",
+                    line = list(
+                        color = "black",
+                        widthh = 0.5,
+                        dash = "dot"
+                    ),
+                    hoverinfo = 'text',
+                    showlegend = TRUE,
+                    legendgroup = 'group1',
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    )
+                ) %>%
+                add_ribbons(
+                    data = no_exerciseAverage_df(),
+                    x = ~ Time_round,
+                    ymin = ~ pLow,
+                    ymax = ~ pHigh,
+                    hoverinfo = 'text',
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    ),
+                    line = list(color = 'rgba(128, 128, 128, 0.05)'),
+                    fillcolor = 'rgba(128, 128, 128, 0.3)',
+                    legendgroup = 'group1',
+                    name = 'Middle 50% of readings per time period - \nno exercise'
+                ) %>%
+                add_lines(
+                    data = exercise_df_24(),
+                    x =  ~ Time_round,
+                    y =  ~ glucose_mean,
+                    connectgaps = FALSE,
+                    showlegend = TRUE,
+                    line = list(color = 'rgba(0, 0, 225, 0.8)'),
+                    hoverinfo = 'text',
+                    legendgroup = 'group2',
+                    name = "Average sensor glucose - exercise",
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    )
+                ) %>%
+                add_ribbons(
+                    data = exercise_df_24(),
+                    x = ~ Time_round,
+                    ymin = ~ pLow,
+                    ymax = ~ pHigh,
+                    hoverinfo = 'text',
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    ),
+                    line = list(color = 'rgba(0, 0, 225, 0.05)'),
+                    fillcolor = 'rgba(0, 0, 225, 0.3)',
+                    legendgroup = 'group2',
+                    name = 'Middle 50% of readings per time period - \nexercise'
+                ) %>%
+                highlight(
+                    data = exercise_df_24(),
+                    on = "plotly_hover",
+                    off = "plotly_doubleclick",
+                    opacityDim = 0.5
+                ) %>%
+                layout(
+                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                                 ticklen = 5),
+                    showlegend = TRUE,
+                    xaxis = list(
+                        type = "date",
+                        tickformat = "%H:%M",
+                        title = ''
+                    )
+                )
+        } else {
+            plot <-
+                plot_ly() %>%
+                add_lines(
+                    data = no_exerciseAverage_df(),
+                    x =  ~ Time_round,
+                    y =  ~ glucose_mean,
+                    type = 'scatter',
+                    mode = 'lines',
+                    name = "Average sensor glucose - no exercise",
+                    line = list(
+                        color = "black",
+                        widthh = 0.5,
+                        dash = "dot"
+                    ),
+                    hoverinfo = 'text',
+                    showlegend = TRUE,
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    )
+                ) %>%
+                add_lines(
+                    data = exercise_df_24(),
+                    x =  ~ Time_round,
+                    y =  ~ glucose_mean,
+                    connectgaps = FALSE,
+                    showlegend = TRUE,
+                    line = list(color = 'rgba(0, 0, 225, 0.8)'),
+                    hoverinfo = 'text',
+                    name = "Average sensor glucose - exercise",
+                    text = ~ paste0(
+                        "Time: ",
+                        strftime(Time_round, format = "%H:%M"),
+                        "<br>",
+                        "Sensor glucose: ",
+                        round(glucose_mean, 1)
+                    )
+                ) %>%
+                highlight(
+                    data = exercise_df_24(),
+                    on = "plotly_hover",
+                    off = "plotly_doubleclick",
+                    opacityDim = 0.5
+                ) %>%
+                layout(
+                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                                 ticklen = 5),
+                    showlegend = TRUE,
+                    xaxis = list(
+                        type = "date",
+                        tickformat = "%H:%M",
+                        title = ''
+                    )
+                )
+            
+        }
+        
+        
         plot
     })
     
@@ -2072,7 +2481,7 @@ server <- function(session, input, output) {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(getData(), file, row.names = FALSE)
+            write.csv(lowBar_df(), file, row.names = FALSE)
         }
     )
     
