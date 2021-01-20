@@ -11,7 +11,7 @@ library(shinydashboard)
 library(zoo)
 library(shinyjs)
 library(shinybusy)
-library(viridis)
+library(chron)
 
 # User created functions ####
 # Function to make first row column names
@@ -43,6 +43,11 @@ getmode <- function(v) {
     uniqv[which.max(tabulate(match(v, uniqv)))]
 }
 
+# Uniform distribution generator with lower and upper bounds
+myrunif <- function(n, min=0, max=1) {
+    min + (sample(.Machine$integer.max, n) - 1) / (.Machine$integer.max - 1) *
+        (max - min)
+}
 
 
 # Increase the file upload limit to 30mb
@@ -100,6 +105,10 @@ ui <- dashboardPage(
             "interquartile_range",
             "Display middle 50% of readings per time period"
         ),
+        # fluidRow(hr("horizontal_rule4")),
+        # radioButtons("average_individual", label = "Blood sugar post-exercise:", choices = c(
+        #     "Average over 24 hours", "Individual "
+        # )),
         fluidRow(hr()),
         checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
         uiOutput("dateInput_1"),
@@ -286,11 +295,18 @@ ui <- dashboardPage(
                 "Impact of exercise",
                 value = "F",
                 box(
-                    title = "Average glucose readings 24 hours after exercise",
+                    title = "Average glucose 24 hours after exercise - at time of day",
                     solidHeader = TRUE,
                     status = "primary",
                     width = 12,
                     plotlyOutput("average_exercise")
+                ),
+                box(
+                    title = "Average glucose 24 hours after exercise - since exercise",
+                    solidHeader = TRUE,
+                    status = "primary",
+                    width = 12,
+                    plotlyOutput("average_exercise_24")
                 ),
                 box(
                     title = "Glucose readings 12 hours after exercise",
@@ -301,7 +317,7 @@ ui <- dashboardPage(
                 )
             )
         ),
-        fluidRow(tableOutput("dailyTable"))
+        fluidRow(textOutput("dailyTable"))
     )
 )
 
@@ -1349,7 +1365,7 @@ server <- function(session, input, output) {
     
     
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
-    # Graphs ####
+    # Blood sugar within range graphs ####
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     
     # Create graph showing the days with best average blood glucose and lowest standard deviation
@@ -1514,9 +1530,10 @@ server <- function(session, input, output) {
         plot
     })
     
-    output$dailyTable <- renderTable({
-        lowBar_df()
+    output$dailyTable <- renderText({
+       NULL #print(class(exercise_df_24()$time_elapsed_exercise))
     })
+    
     
     # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ###
     # Cumulative average days in range ####
@@ -2165,7 +2182,7 @@ server <- function(session, input, output) {
                 difftime(date_time, exercise_time, units = "hours") <= 24,
                 1,
                 0
-            ))
+            )) 
     })
     
     exercise_df_12 <- reactive({
@@ -2190,7 +2207,7 @@ server <- function(session, input, output) {
         exercise_df() %>%
             filter(exercise_within_time_24 == 1 &
                        !is.na(exercise_group) & is.na(`Event Marker`)) %>%
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>%
+            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`, `Event Marker`) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
             mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
@@ -2238,6 +2255,57 @@ server <- function(session, input, output) {
             arrange(Time_round)
     })
     
+    # Generate df that is only the exercise start times
+    exercise_df_start <- reactive({
+        df <- exercise_df() %>% 
+            filter(`Event Marker` == "Exercise") %>% 
+            mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) 
+            
+            
+        df$y <- myrunif(nrow(df), min=0.5, max=1)
+        df
+    })
+    
+    exercise_df_24_elapse <- reactive({
+        df <- exercise_df() %>%
+            filter(exercise_within_time_24 == 1 &
+                       !is.na(exercise_group) & is.na(`Event Marker`)) %>%
+            arrange(date_time) %>% 
+            group_by(exercise_group) %>% 
+            mutate(group_first_time = first(date_time)) %>% 
+            mutate(time_elapsed_round = (round_date(date_time, "15 minutes"))) %>%
+            mutate(group_first_time_round = (round_date(group_first_time, "15 minutes"))) %>%
+            mutate(time_elapsed_exercise = difftime(time_elapsed_round, group_first_time_round, units = "secs",
+                                                    tz = Sys.timezone())) %>% 
+            mutate(time_elapsed_exercise = seconds_to_period(time_elapsed_exercise)) %>% 
+            # Get average by 15 minutes, by exercise group
+            group_by(time_elapsed_exercise) %>% 
+            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>% 
+            mutate(pLow = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.25,
+                na.rm = TRUE
+            )) %>%
+            mutate(pHigh = quantile(
+                `Sensor Glucose (mmol/L)`,
+                probs = 0.75,
+                na.rm = TRUE
+            )) %>%
+            ungroup() %>% 
+            distinct(time_elapsed_exercise, .keep_all = TRUE) %>% 
+            # Need to change time elapsed to factor
+            arrange(time_elapsed_exercise) %>% 
+            mutate(time_elapsed_exercise = as.character(time_elapsed_exercise)) %>% 
+            mutate(time_elapsed_exercise = sub("^(\\S*\\s+\\S+).*", "\\1", time_elapsed_exercise))
+        
+        levels_df <- df %>% 
+            pull(time_elapsed_exercise)
+        
+        df$time_elapsed_exercise <- factor(df$time_elapsed_exercise, levels = levels_df)
+        
+        df
+        
+    })
     
     output$readings_exercise <- renderPlotly({
         validate(need(!is.null(getData()), "No data uploaded yet"))
@@ -2394,6 +2462,19 @@ server <- function(session, input, output) {
                     legendgroup = 'group2',
                     name = 'Middle 50% of readings per time period - \nexercise'
                 ) %>%
+                add_markers(data = exercise_df_start(),
+                            x = ~Time,
+                            y = ~y,
+                            hoverinfo = 'text',
+                            text = ~paste0(
+                                "Date: ", as.character(Date),
+                                "<br>",
+                                "Time: ",
+                                strftime(Time, format = "%H:%M")
+                            ),
+                            name = "Exercise start time",
+                            color = 'rgba(34,139,34)'
+                ) %>% 
                 highlight(
                     data = exercise_df_24(),
                     on = "plotly_hover",
@@ -2407,7 +2488,7 @@ server <- function(session, input, output) {
                     xaxis = list(
                         type = "date",
                         tickformat = "%H:%M",
-                        title = ''
+                        title = 'Time of day'
                     )
                 )
         } else {
@@ -2452,6 +2533,12 @@ server <- function(session, input, output) {
                         round(glucose_mean, 1)
                     )
                 ) %>%
+                add_markers(data = exercise_df_start(),
+                            x = ~Time,
+                            y = ~y,
+                            name = "Exercise start time",
+                            color = 'rgba(34,139,34)'
+                ) %>% 
                 highlight(
                     data = exercise_df_24(),
                     on = "plotly_hover",
@@ -2465,7 +2552,7 @@ server <- function(session, input, output) {
                     xaxis = list(
                         type = "date",
                         tickformat = "%H:%M",
-                        title = ''
+                        title = 'Time of day'
                     )
                 )
             
@@ -2475,13 +2562,87 @@ server <- function(session, input, output) {
         plot
     })
     
+    
+    output$average_exercise_24 <- renderPlotly({
+        validate(need(!is.null(getData()), "No data uploaded yet"))
+        if (input$interquartile_range == FALSE) {
+        plot_ly() %>% 
+            add_lines(data = exercise_df_24_elapse(),
+                      x = ~time_elapsed_exercise,
+                      y= ~glucose_mean,
+                      connectgaps=FALSE,
+                      showlegend = TRUE,
+                      line = list(color = 'rgba(0, 0, 225, 0.8)'),
+                      name = "Average sensor glucose",
+                      hoverinfo = 'text',
+                      text = ~paste0(
+                          "Time: ",
+                          time_elapsed_exercise,
+                          "<br>",
+                          "Sensor glucose: ",
+                          round(glucose_mean, 1)
+                      )) %>% 
+            layout(
+                yaxis = list(title = "Sensor glucose (mmol/L)",
+                             ticklen = 5),
+                showlegend = TRUE,
+                xaxis = list(
+                    title = 'Time since exercise',
+                    autotick = F, dtick = 4
+                )
+            )
+        } else {
+            plot_ly() %>% 
+                add_lines(data = exercise_df_24_elapse(),
+                          x = ~time_elapsed_exercise,
+                          y= ~glucose_mean,
+                          connectgaps=FALSE,
+                          showlegend = TRUE,
+                          line = list(color = 'rgba(0, 0, 225, 0.8)'),
+                          name = "Average sensor glucose",
+                          hoverinfo = 'text',
+                          text = ~paste0(
+                              "Time: ",
+                              time_elapsed_exercise,
+                              "<br>",
+                              "Sensor glucose: ",
+                              round(glucose_mean, 1)
+                          )) %>% 
+                add_ribbons(
+                    data =  exercise_df_24_elapse(),
+                    x = ~ time_elapsed_exercise,
+                    ymin = ~ pLow,
+                    ymax = ~ pHigh,
+                    hoverinfo = 'text',
+                    text = ~ paste0(
+                        "Time: ",
+                        time_elapsed_exercise
+                    ),
+                    line = list(color = 'rgba(0, 0, 225, 0.05)'),
+                    fillcolor = 'rgba(0, 0, 225, 0.3)',
+                    name = 'Middle 50% of readings per time after exercise'
+                ) %>%
+                layout(
+                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                                 ticklen = 5),
+                    showlegend = TRUE,
+                    xaxis = list(
+                        title = 'Time since exercise',
+                        autotick = F, dtick = 4
+                    )
+                )
+        }
+    })
+    
+    ### #
+    
     # Download the data ####
     output$downloadData <- downloadHandler(
         filename = function() {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(lowBar_df(), file, row.names = FALSE)
+            write.csv(exercise_df_36(), file, row.names = FALSE)
         }
     )
     
