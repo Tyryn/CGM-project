@@ -11,7 +11,7 @@ library(shinydashboard)
 library(zoo)
 library(shinyjs)
 library(shinybusy)
-library(chron)
+# library(chron)
 
 # User created functions ####
 # Function to make first row column names
@@ -59,7 +59,7 @@ options(shiny.maxRequestSize = 30 * 1024 ^ 2)
 # Below done to make sidebar reactive with horizontal rules disappearing when appropriate
 
 ui <- dashboardPage(
-    dashboardHeader(title = "CGM explorer"),
+    dashboardHeader(title = "CGM data explorer"),
     dashboardSidebar(
         # Spinner for when the app is busy with any operation
         add_busy_spinner(
@@ -109,22 +109,11 @@ ui <- dashboardPage(
         # radioButtons("average_individual", label = "Blood sugar post-exercise:", choices = c(
         #     "Average over 24 hours", "Individual "
         # )),
-        fluidRow(hr()),
+        fluidRow(hr(id = "horizontal_rule4")),
         checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
         uiOutput("dateInput_1"),
         uiOutput("dateInput_2"),
-        radioButtons(
-            "ma_period",
-            label = "Pick a time period",
-            choices = list(
-                "All days" = 1,
-                "200 days" = 200,
-                "100 days" = 100,
-                "50 days" = 50
-            ),
-            selected = 1
-        ),
-        fluidRow(hr()),
+        fluidRow(hr(id = "horizontal_rule5")),
         downloadButton('downloadData', 'Download')
         # Main panel to display table
     ),
@@ -241,14 +230,14 @@ ui <- dashboardPage(
                 )
             ),
             tabPanel(
-                "Performance over time",
-                value = "B",
+                "Average glucose readings",
+                value = "E",
                 box(
-                    title = "% readings in range - moving average",
+                    title = "Average glucose reading per time period",
                     solidHeader = TRUE,
                     status = "primary",
                     width = 12,
-                    plotlyOutput("cum_inrange")
+                    plotlyOutput("glucoseAverage_plot")
                 )
             ),
             tabPanel(
@@ -270,6 +259,17 @@ ui <- dashboardPage(
                 )
             ),
             tabPanel(
+                "Performance over time",
+                value = "B",
+                box(
+                    title = "% readings in range - 50 day rolling average",
+                    solidHeader = TRUE,
+                    status = "primary",
+                    width = 12,
+                    plotlyOutput("cum_inrange")
+                )
+            ),
+            tabPanel(
                 "Days of the week",
                 value = "D",
                 box(
@@ -278,17 +278,6 @@ ui <- dashboardPage(
                     status = "primary",
                     width = 12,
                     plotlyOutput("day_of_week_bar")
-                )
-            ),
-            tabPanel(
-                "Average glucose readings",
-                value = "E",
-                box(
-                    title = "Average glucose reading per time period",
-                    solidHeader = TRUE,
-                    status = "primary",
-                    width = 12,
-                    plotlyOutput("glucoseAverage_plot")
                 )
             ),
             tabPanel(
@@ -307,13 +296,6 @@ ui <- dashboardPage(
                     status = "primary",
                     width = 12,
                     plotlyOutput("average_exercise_24")
-                ),
-                box(
-                    title = "Glucose readings 12 hours after exercise",
-                    solidHeader = TRUE,
-                    status = "primary",
-                    width = 12,
-                    plotlyOutput("readings_exercise")
                 )
             )
         ),
@@ -325,7 +307,6 @@ ui <- dashboardPage(
 ############################ Server #######################################################################
 server <- function(session, input, output) {
     # Hide the sidebar panel widgets dynamic if certain tabs selected ####
-    
     observe({
         shinyjs::toggle(id = "date1", condition = {
             "A" %in% input$tabs ||
@@ -335,9 +316,6 @@ server <- function(session, input, output) {
         shinyjs::toggle(id = "date2", condition = {
             "A" %in% input$tabs ||
                 "C" %in% input$tabs || "D" %in% input$tabs || "E" %in% input$tabs
-        })
-        shinyjs::toggle(id = "ma_period", condition = {
-            "B" %in% input$tabs
         })
         shinyjs::toggle(id = "target_range", condition = {
             "A" %in% input$tabs ||
@@ -351,6 +329,10 @@ server <- function(session, input, output) {
         })
         shinyjs::toggle(id = "horizontal_rule2", condition = {
             "C" %in% input$tabs
+        })
+        shinyjs::toggle(id = "horizontal_rule4", condition = {
+          "A" %in% input$tabs || "C" %in% input$tabs || "D" %in% input$tabs ||
+             "E" %in% input$tabs
         })
     })
     
@@ -370,98 +352,7 @@ server <- function(session, input, output) {
         })
     })
     
-    
-    # # Update the date ranges to the first and last dates in the cgm data
-    # observeEvent(input$infile, {
-    #     end_date <- max(cgmData()$date)
-    #     start_date <- end_date - 30
-    #
-    #     updateDateRangeInput(session, inputId = "date1", start = start_date,
-    #                          end = end_date)
-    # })
-    #
-    # observeEvent(input$infile, {
-    #     end_date <- max(cgmData()$date) - 31
-    #     start_date <- min(cgmData()$date)
-    #
-    #     # if(difftime(end_date, start_date, units = "days")>)
-    #     updateDateRangeInput(session, inputId = "date2", start = start_date,
-    #                          end = end_date)
-    # })
-    
-    
-    
-    # Make date ranges dynamic ####
-    start_date <- reactive({
-        min(cgmData()$date)
-    })
-    end_date <- reactive({
-        max(cgmData()$date)
-    })
-    
-    output$dateInput_1 <- renderUI({
-        if (input$date_comparison == FALSE & !is.null(input$infile)) {
-            return(
-                dateRangeInput(
-                    "date1",
-                    "Pick a date range",
-                    start = start_date(),
-                    end = end_date(),
-                    format = "yyyy-mm-dd"
-                )
-            )
-        } else if (input$date_comparison == TRUE &
-                   !is.null(input$infile)) {
-            return(
-                dateRangeInput(
-                    "date1",
-                    "Pick a date range",
-                    start = end_date() - 30,
-                    end = end_date(),
-                    format = "yyyy-mm-dd"
-                )
-            )
-            
-        } else if (is.null(input$infile)) {
-            return(
-                dateRangeInput(
-                    "date1",
-                    "Pick a date range",
-                    start = Sys.Date() - 30,
-                    end = Sys.Date(),
-                    format = "yyyy-mm-dd"
-                )
-            )
-        }
-    })
-    
-    output$dateInput_2 <- renderUI({
-        if (!is.null(input$infile) & input$date_comparison == TRUE) {
-            return(
-                dateRangeInput(
-                    "date2",
-                    "Pick a date range",
-                    start = end_date() - 61,
-                    end = end_date() - 31,
-                    format = "yyyy-mm-dd"
-                )
-            )
-        } else if (input$date_comparison == TRUE) {
-            return(
-                dateRangeInput(
-                    "date2",
-                    "Pick a date range",
-                    start = Sys.Date() - 61,
-                    end = Sys.Date() - 31,
-                    format = "yyyy-mm-dd"
-                )
-            )
-            
-        } else {
-            return(NULL)
-        }
-        
-    })
+  
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
     # Make blocks UI dynamic ####
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
@@ -813,8 +704,77 @@ server <- function(session, input, output) {
         cgmData
     })
     
+    # Make date ranges dynamic ####
+    start_date <- reactive({
+        min(cgmData()$date)
+    })
+    end_date <- reactive({
+        max(cgmData()$date)
+    })
     
+    output$dateInput_1 <- renderUI({
+        if (input$date_comparison == FALSE & !is.null(input$infile)) {
+            return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = start_date(),
+                    end = end_date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+        } else if (input$date_comparison == TRUE &
+                   !is.null(input$infile)) {
+            return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = end_date() - 30,
+                    end = end_date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+            
+        } else if (is.null(input$infile)) {
+            return(
+                dateRangeInput(
+                    "date1",
+                    "Pick a date range",
+                    start = Sys.Date() - 30,
+                    end = Sys.Date(),
+                    format = "yyyy-mm-dd"
+                )
+            )
+        }
+    })
     
+    output$dateInput_2 <- renderUI({
+        if (!is.null(input$infile) & input$date_comparison == TRUE) {
+            return(
+                dateRangeInput(
+                    "date2",
+                    "Pick a date range",
+                    start = end_date() - 61,
+                    end = end_date() - 31,
+                    format = "yyyy-mm-dd"
+                )
+            )
+        } else if (input$date_comparison == TRUE) {
+            return(
+                dateRangeInput(
+                    "date2",
+                    "Pick a date range",
+                    start = Sys.Date() - 61,
+                    end = Sys.Date() - 31,
+                    format = "yyyy-mm-dd"
+                )
+            )
+            
+        } else {
+            return(NULL)
+        }
+        
+    })
     
     
     #### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #
@@ -1541,17 +1501,8 @@ server <- function(session, input, output) {
     
     cumAverage_df <- reactive({
         validate(need(!is.null(getData()), "No data uploaded yet"))
-        
-        if (input$ma_period == 1) {
-            df <- cgmData() %>%
-                ungroup() %>%
-                mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
-                arrange(date)  %>%
-                select(date, percent_in_range) %>%
-                drop_na() %>%
-                mutate(in_range_cum_mean =  cumavg(percent_in_range)) %>%
-                accumulate_by(~ date)
-        } else {
+        validate(need(nrow(cgmData()>=200), "Need at least 50 days of data"))
+  
             df <- cgmData() %>%
                 ungroup() %>%
                 mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
@@ -1561,57 +1512,40 @@ server <- function(session, input, output) {
                 mutate(
                     in_range_cum_mean =  zoo::rollmean(
                         percent_in_range,
-                        as.numeric(input$ma_period),
+                        50,
                         fill = NA,
                         align = "right"
                     )
-                ) %>%
-                accumulate_by(~ date)
-        }
+                ) 
         df
     })
     
     
     
     output$cum_inrange <- renderPlotly({
-        validate(need(!is.null(getData()), "No data uploaded yet"))
-        # df <- cgmData() %>%
-        #     ungroup() %>%
-        #     mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
-        #     arrange(date)  %>%
-        #     select(date, percent_in_range) %>%
-        #     drop_na() %>%
-        #     mutate(in_range_cum_mean =  zoo::rollmean(percent_in_range, 30, fill = NA)) %>%
-        #     accumulate_by(~date)
-        
-        #df$in_range_cum_mean <- cumavg(df$percent_in_range)
-        #
-        # df <- df %>%
-        #     accumulate_by(~date)
-        
-        df <- cumAverage_df()
-        
-        
-        plot <-
-            ggplot(df, aes(
-                x = date,
-                y = in_range_cum_mean,
-                frame = frame
-            )) +
-            ggplot2::geom_line() + theme_minimal() +
-            scale_y_continuous(labels = scales::percent_format(accuracy = 1))
-        
-        plot <- ggplotly(plot, tooltip = c("text")) %>%
-            
-            layout(
-                yaxis = list(title = "% readings in range"),
-                xaxis = list(title = "Date")
-            ) %>%
-            animation_opts(frame = 100,
-                           transition = 0,
-                           redraw = FALSE)
-        
-        plot
+      validate(need(!is.null(getData()), "No data uploaded yet"))
+      
+      ymin <- max(0, (min(cumAverage_df()$in_range_cum_mean, na.rm = TRUE)-0.15), na.rm = TRUE)
+      ymax <- min(1, (max(cumAverage_df()$in_range_cum_mean, na.rm = TRUE)+0.15), na.rm = TRUE)
+      
+      plot <-
+        ggplot(cumAverage_df(),
+               aes(
+                 x = date,
+                 y = in_range_cum_mean, group=1,
+                 text = paste0("Date: ",
+                               date,
+                               "<br>",
+                               "Percent in range: ",
+                               paste0(round(in_range_cum_mean*100,1),"%"))
+               )) +
+        geom_line() + theme_minimal() +  scale_x_date(name = "") +
+        scale_y_continuous(labels = scales::percent_format(accuracy = 1),name = "% readings in range (rolling average)",
+                           limits = c(ymin, ymax))
+      
+      plot <- ggplotly(plot, tooltip = c("text")) 
+      
+      plot
         
     })
     
@@ -1747,7 +1681,11 @@ server <- function(session, input, output) {
         } else if (input$date_comparison == FALSE &
                    input$bar_density == "Bar graph") {
             plot <- ggplot(lowBar_df(),
-                           aes(x = Time_round, y = low_event_count)) +
+                           aes(x = Time_round, y = low_event_count, text = paste0("Time: ",
+                                                                                  strftime(Time_round, format = "%H:%M"),
+                                                                               "<br>",
+                                                                               "Low events: ",
+                                                                               low_event_count))) +
                 geom_bar(stat = "identity",
                          fill = "blue",
                          alpha = 0.5)  +
@@ -1761,7 +1699,12 @@ server <- function(session, input, output) {
                 aes(
                     x = Time_round,
                     y = low_event_count,
-                    fill = date_rangeIndicator
+                    fill = date_rangeIndicator,
+                    text = paste0("Time: ",
+                                  strftime(Time_round, format = "%H:%M"),
+                                  "<br>",
+                                  "Low events: ",
+                                  low_event_count)
                 )
             ) +
                 geom_bar(stat = "identity",
@@ -1775,7 +1718,7 @@ server <- function(session, input, output) {
                       legend.title = element_blank())
         }
         
-        plot <- ggplotly(plot, tooltip = "none")
+        plot <- ggplotly(plot, tooltip = c("text"))
         plot
     })
     
@@ -1822,7 +1765,12 @@ server <- function(session, input, output) {
                    input$bar_density == "Bar graph") {
             plot <-
                 ggplot(highBar_df(),
-                       aes(x = Time_round, y = high_event_count)) +
+                       aes(x = Time_round, y = high_event_count,
+                           text = paste0("Time: ",
+                                                                              strftime(Time_round, format = "%H:%M"),
+                                                                              "<br>",
+                                                                              "High events: ",
+                                                                              high_event_count))) +
                 geom_bar(stat = "identity",
                          fill = "blue",
                          alpha = 0.5)  +
@@ -1836,7 +1784,12 @@ server <- function(session, input, output) {
                 aes(
                     x = Time_round,
                     y = high_event_count,
-                    fill = date_rangeIndicator
+                    fill = date_rangeIndicator,
+                    text = paste0("Time: ",
+                                  strftime(Time_round, format = "%H:%M"),
+                                  "<br>",
+                                  "High events: ",
+                                  high_event_count)
                 )
             ) +
                 geom_bar(stat = "identity",
@@ -1850,7 +1803,7 @@ server <- function(session, input, output) {
                       legend.title = element_blank())
         }
         
-        plot <- ggplotly(plot, tooltip = "none")
+        plot <- ggplotly(plot, tooltip = "text")
         plot
     })
     
@@ -2185,23 +2138,23 @@ server <- function(session, input, output) {
             )) 
     })
     
-    exercise_df_12 <- reactive({
-        exercise_df() %>%
-            filter(exercise_within_time_12 == 1 &
-                       !is.na(exercise_group) & is.na(`Event Marker`)) %>%
-            select(date_time,
-                   Date,
-                   Time,
-                   `Sensor Glucose (mmol/L)`,
-                   exercise_group) %>%
-            # Need to rename date_time and Sensor.glucose. to match names in other dataframe
-            mutate(Time_round = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
-            mutate(glucose_mean = `Sensor Glucose (mmol/L)`) %>%
-            # Add extra row to the end of each group so that there are gaps in the line charts
-            mutate(glucose_mean = c(glucose_mean[-n()], NA)) %>%
-            arrange(Time_round) %>%
-            group_by(exercise_group)
-    })
+    # exercise_df_12 <- reactive({
+    #     exercise_df() %>%
+    #         filter(exercise_within_time_12 == 1 &
+    #                    !is.na(exercise_group) & is.na(`Event Marker`)) %>%
+    #         select(date_time,
+    #                Date,
+    #                Time,
+    #                `Sensor Glucose (mmol/L)`,
+    #                exercise_group) %>%
+    #         # Need to rename date_time and Sensor.glucose. to match names in other dataframe
+    #         mutate(Time_round = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
+    #         mutate(glucose_mean = `Sensor Glucose (mmol/L)`) %>%
+    #         # Add extra row to the end of each group so that there are gaps in the line charts
+    #         mutate(glucose_mean = c(glucose_mean[-n()], NA)) %>%
+    #         arrange(Time_round) %>%
+    #         group_by(exercise_group)
+    # })
     
     exercise_df_24 <- reactive({
         exercise_df() %>%
@@ -2307,74 +2260,74 @@ server <- function(session, input, output) {
         
     })
     
-    output$readings_exercise <- renderPlotly({
-        validate(need(!is.null(getData()), "No data uploaded yet"))
-        validate(need(!is.null(exercise_df()), "No data uploaded yet"))
+    # output$readings_exercise <- renderPlotly({
+    #     validate(need(!is.null(getData()), "No data uploaded yet"))
+    #     validate(need(!is.null(exercise_df()), "No data uploaded yet"))
+    #     
+    #     # dat <- highlight_key(exercise_df_12(), key =  ~ exercise_group)
         
-        dat <- highlight_key(exercise_df_12(), key =  ~ exercise_group)
-        
-        plot <-
-            plot_ly() %>%
-            add_lines(
-                data = no_exerciseAverage_df(),
-                x =  ~ Time_round,
-                y =  ~ glucose_mean,
-                type = 'scatter',
-                mode = 'lines',
-                name = "Average sensor glucose - \nno exercise",
-                line = list(
-                    color = "black",
-                    widthh = 0.5,
-                    dash = "dot"
-                ),
-                hoverinfo = 'text',
-                showlegend = TRUE,
-                text = ~ paste0(
-                    "Time: ",
-                    strftime(Time_round, format = "%H:%M"),
-                    "<br>",
-                    "Sensor glucose: ",
-                    round(glucose_mean, 1)
-                )
-            ) %>%
-            add_lines(
-                data = dat,
-                x =  ~ Time_round,
-                y =  ~ glucose_mean,
-                connectgaps = FALSE,
-                showlegend = FALSE,
-                hoverinfo = 'text',
-                line = list(color = 'rgba(0, 0, 225, 0.8)'),
-                text = ~ paste0(
-                    "Date: ",
-                    as.character(Date),
-                    "<br>",
-                    "Time: ",
-                    strftime(Time_round, format = "%H:%M"),
-                    "<br>",
-                    "Sensor glucose: ",
-                    round(glucose_mean, 1)
-                )
-            ) %>%
-            highlight(
-                data = dat,
-                on = "plotly_hover",
-                off = "plotly_doubleclick",
-                opacityDim = 0.5
-            ) %>%
-            layout(
-                yaxis = list(title = "Sensor glucose (mmol/L)",
-                             ticklen = 5),
-                showlegend = TRUE,
-                xaxis = list(
-                    type = "date",
-                    tickformat = "%H:%M",
-                    title = ''
-                )
-            )
-        plot
-        
-    })
+    #     plot <-
+    #         plot_ly() %>%
+    #         add_lines(
+    #             data = no_exerciseAverage_df(),
+    #             x =  ~ Time_round,
+    #             y =  ~ glucose_mean,
+    #             type = 'scatter',
+    #             mode = 'lines',
+    #             name = "Average sensor glucose - \nno exercise",
+    #             line = list(
+    #                 color = "black",
+    #                 widthh = 0.5,
+    #                 dash = "dot"
+    #             ),
+    #             hoverinfo = 'text',
+    #             showlegend = TRUE,
+    #             text = ~ paste0(
+    #                 "Time: ",
+    #                 strftime(Time_round, format = "%H:%M"),
+    #                 "<br>",
+    #                 "Sensor glucose: ",
+    #                 round(glucose_mean, 1)
+    #             )
+    #         ) %>%
+    #         add_lines(
+    #             data = dat,
+    #             x =  ~ Time_round,
+    #             y =  ~ glucose_mean,
+    #             connectgaps = FALSE,
+    #             showlegend = FALSE,
+    #             hoverinfo = 'text',
+    #             line = list(color = 'rgba(0, 0, 225, 0.8)'),
+    #             text = ~ paste0(
+    #                 "Date: ",
+    #                 as.character(Date),
+    #                 "<br>",
+    #                 "Time: ",
+    #                 strftime(Time_round, format = "%H:%M"),
+    #                 "<br>",
+    #                 "Sensor glucose: ",
+    #                 round(glucose_mean, 1)
+    #             )
+    #         ) %>%
+    #         highlight(
+    #             data = dat,
+    #             on = "plotly_hover",
+    #             off = "plotly_doubleclick",
+    #             opacityDim = 0.5
+    #         ) %>%
+    #         layout(
+    #             yaxis = list(title = "Sensor glucose (mmol/L)",
+    #                          ticklen = 5),
+    #             showlegend = TRUE,
+    #             xaxis = list(
+    #                 type = "date",
+    #                 tickformat = "%H:%M",
+    #                 title = ''
+    #             )
+    #         )
+    #     plot
+    #     
+    # })
     
     
     
@@ -2537,6 +2490,15 @@ server <- function(session, input, output) {
                             x = ~Time,
                             y = ~y,
                             name = "Exercise start time",
+                            color = 'rgba(34,139,34)',
+                            hoverinfo = 'text',
+                            text = ~paste0(
+                                "Date: ", as.character(Date),
+                                "<br>",
+                                "Time: ",
+                                strftime(Time, format = "%H:%M")
+                            ),
+                            name = "Exercise start time",
                             color = 'rgba(34,139,34)'
                 ) %>% 
                 highlight(
@@ -2642,7 +2604,7 @@ server <- function(session, input, output) {
             paste("data-", Sys.Date(), ".csv", sep = "")
         },
         content = function(file) {
-            write.csv(exercise_df_36(), file, row.names = FALSE)
+            write.csv(cumAverage_df(), file, row.names = FALSE)
         }
     )
     
