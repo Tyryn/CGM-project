@@ -11,20 +11,12 @@ library(shinydashboard)
 library(zoo)
 library(shinyjs)
 library(shinybusy)
-# library(chron)
 
 # User created functions ####
 # Function to make first row column names
 header.true <- function(df) {
     names(df) <- as.character(unlist(df[1, ]))
     df[-1, ]
-}
-
-# Function to get cumulative average of days in range
-cumavg <- function(x)
-    cumsum(x) / seq_along(x)
-mav <- function(x, n) {
-    filter(x, rep(1 / n, n), sides = 1)
 }
 
 # Function to create frames for the animated plotly line graph
@@ -93,32 +85,21 @@ ui <- dashboardPage(
         ),
         
         fluidRow(hr(id = "horizontal_rule3")),
-        sliderInput(
-            "target_range",
-            "Target blood glucose range (mmol/L)",
-            min = 0,
-            max = 20,
-            value = c(4, 10),
-            step = 0.5
-        ),
+        uiOutput("target_range"),
         checkboxInput(
             "interquartile_range",
             "Display middle 50% of readings per time period"
         ),
-        # fluidRow(hr("horizontal_rule4")),
-        # radioButtons("average_individual", label = "Blood sugar post-exercise:", choices = c(
-        #     "Average over 24 hours", "Individual "
-        # )),
         fluidRow(hr(id = "horizontal_rule4")),
         checkboxInput("date_comparison", label = "Compare time periods", value = FALSE),
         uiOutput("dateInput_1"),
         uiOutput("dateInput_2"),
         fluidRow(hr(id = "horizontal_rule5")),
         downloadButton('downloadData', 'Download')
+        
         # Main panel to display table
     ),
     dashboardBody(
-        # use_waiter(),
         tabsetPanel(
             id = "tabs",
             type = "tabs",
@@ -199,7 +180,6 @@ ui <- dashboardPage(
                         solidHeader = TRUE,
                         status = "primary",
                         uiOutput("period07_11_box")
-                        # fluidRow(box(textOutput("period_07_11_1")), box(textOutput("period_07_11_2")))
                     ),
                     box(
                         title = "% in range 11am-6pm",
@@ -207,7 +187,6 @@ ui <- dashboardPage(
                         solidHeader = TRUE,
                         status = "primary",
                         uiOutput("period11_18_box")
-                        # fluidRow(box(textOutput("period_11_18_1")), box(textOutput("period_11_18_2")))
                     ),
                     box(
                         title = "% in range 6pm-12am",
@@ -215,7 +194,6 @@ ui <- dashboardPage(
                         solidHeader = TRUE,
                         status = "primary",
                         uiOutput("period18_00_box")
-                        # fluidRow(box(textOutput("period_18_00_1")), box(textOutput("period_18_00_2")))
                     )
                 ),
                 fluidRow(
@@ -588,22 +566,33 @@ server <- function(session, input, output) {
                 
                 # Data frame with the glucose level data
                 csv <- csv %>%
-                    # Keep only the rows with the sensor blood glucose data
-                    slice(str_which(V2, "Date")[1]:nrow(.)) %>%
-                    slice(2:nrow(.)) %>%
-                    slice(str_which(V2, "Date")[1]:nrow(.)) %>%
-                    # Keep only datetime and sensor blood glucose columns
-                    select(V2, V3, V32) %>%
-                    header.true(.) %>%
-                    # Convert to time date values
-                    unite("date_time",
-                          Date:Time,
-                          remove = FALSE,
-                          sep = " ") %>%
-                    mutate(date_time = str_replace_all(date_time, "/", "-")) %>%
-                    mutate(date_time = ymd_hms(date_time, tz = Sys.timezone())) %>%
-                    mutate(`Sensor Glucose (mmol/L)` = as.numeric(`Sensor Glucose (mmol/L)`))  %>%
-                    drop_na(date_time)
+                  # Keep only the rows with the sensor blood glucose data
+                  slice(str_which(V2, "Date")[1]:nrow(.)) %>%
+                  slice(2:nrow(.)) %>%
+                  slice(str_which(V2, "Date")[1]:nrow(.)) %>%
+                  # Keep only datetime and sensor blood glucose columns
+                  select(V2, V3, V32) %>%
+                  header.true(.) %>%
+                  # Convert to time date values
+                  unite("date_time",
+                        Date:Time,
+                        remove = FALSE,
+                        sep = " ") %>%
+                  mutate(date_time = str_replace_all(date_time, "/", "-")) %>%
+                  mutate(date_time = ymd_hms(date_time, tz = Sys.timezone()))
+                
+                # To account for data inputted with mmol/L or mg/dL
+                if ("Sensor Glucose (mmol/L)" %in% colnames(csv)){
+                  csv <- csv %>% 
+                    mutate(`Sensor Glucose` = as.numeric(`Sensor Glucose (mmol/L)`))  %>%
+                    drop_na(date_time) %>% 
+                    select(date_time, Date, Time, `Sensor Glucose`)
+                } else {
+                  csv <- csv %>% 
+                    mutate(`Sensor Glucose` = as.numeric(`Sensor Glucose (mg/dL)`))  %>%
+                    drop_na(date_time) %>% 
+                    select(date_time, Date, Time, `Sensor Glucose`)
+                }
                 
                 # Add row with missing glucose reading if time between reading is greater than 20 minutes
                 csv_with_time_added <- csv %>%
@@ -614,7 +603,7 @@ server <- function(session, input, output) {
                         date_time = date_time + 600,
                         Date = "",
                         Time = "",
-                        `Sensor Glucose (mmol/L)` = NA
+                        `Sensor Glucose` = NA
                     ) %>%
                     select(-time_elapsed)
                 
@@ -641,13 +630,13 @@ server <- function(session, input, output) {
             mutate(date = as.Date(date_time, "%Y-%m-%d", tz = Sys.timezone())) %>%
             distinct(date_time, .keep_all = TRUE) %>%
             group_by(date) %>%
-            drop_na(`Sensor Glucose (mmol/L)`) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`)) %>%
-            mutate(glucose_sd = sd(`Sensor Glucose (mmol/L)`)) %>%
+            drop_na(`Sensor Glucose`) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose`)) %>%
+            mutate(glucose_sd = sd(`Sensor Glucose`)) %>%
             mutate(
                 in_range = ifelse(
-                    `Sensor Glucose (mmol/L)` >= input$target_range[1] &
-                        `Sensor Glucose (mmol/L)` <= input$target_range[2],
+                    `Sensor Glucose` >= input$target_range[1] &
+                        `Sensor Glucose` <= input$target_range[2],
                     1,
                     0
                 )
@@ -658,8 +647,8 @@ server <- function(session, input, output) {
             filter(n > 200) %>% # Quite a sharp limit on a days minimum sample size - possibly convert rows to NA
             mutate(percent_in_range = (sum(in_range, na.rm = TRUE) / n)) %>%
             # Below is for the daily average low and high events
-            mutate(low_event = ifelse(`Sensor Glucose (mmol/L)` < input$target_range[1], 1, 0)) %>%
-            mutate(high_event = ifelse(`Sensor Glucose (mmol/L)` > input$target_range[2], 1, 0)) %>%
+            mutate(low_event = ifelse(`Sensor Glucose` < input$target_range[1], 1, 0)) %>%
+            mutate(high_event = ifelse(`Sensor Glucose` > input$target_range[2], 1, 0)) %>%
             mutate(low_event_first = ifelse(low_event != lag(low_event) &
                                                 low_event == 1, 1, 0)) %>%
             mutate(high_event_first = ifelse(high_event != lag(high_event) &
@@ -702,6 +691,40 @@ server <- function(session, input, output) {
             # Below is for best and worst day of the week
             mutate(day_of_week = weekdays(date))
         cgmData
+    })
+    
+    # Create mmol/L or mg/dL reactive character string ####
+    # Used for labeling graphs etc.
+    mmol_or_dL <- reactive({
+      if (max(getData()$`Sensor Glucose`, na.rm = TRUE)>30){
+        mmol_or_dL <- "(mg/dL)"
+      } else {
+        mmol_or_dL <-"(mmol/L)"
+      }
+      mmol_or_dL
+    })
+    
+    # Make target range slider reactive to mmol/L or mg/dL ####
+    output$target_range <- renderUI({
+      if(mmol_or_dL()=="(mmol/L)") {
+        sliderInput(
+          "target_range",
+          "Target blood glucose range",
+          min = 0,
+          max = 20,
+          value = c(4, 10),
+          step = 0.5
+        )
+      } else {
+        sliderInput(
+          "target_range",
+          "Target blood glucose range",
+          min = 25,
+          max = 360,
+          value = c(72, 180),
+          step = 10
+        )
+      }
     })
     
     # Make date ranges dynamic ####
@@ -1166,8 +1189,8 @@ server <- function(session, input, output) {
                               date <= input$date1[2]) %>%
             mutate(
                 in_range = ifelse(
-                    `Sensor Glucose (mmol/L)` >= input$target_range[1] &
-                        `Sensor Glucose (mmol/L)` <= input$target_range[2],
+                    `Sensor Glucose` >= input$target_range[1] &
+                        `Sensor Glucose` <= input$target_range[2],
                     1,
                     0
                 )
@@ -1187,8 +1210,8 @@ server <- function(session, input, output) {
                               date <= input$date2[2]) %>%
             mutate(
                 in_range = ifelse(
-                    `Sensor Glucose (mmol/L)` >= input$target_range[1] &
-                        `Sensor Glucose (mmol/L)` <= input$target_range[2],
+                    `Sensor Glucose` >= input$target_range[1] &
+                        `Sensor Glucose` <= input$target_range[2],
                     1,
                     0
                 )
@@ -1392,15 +1415,27 @@ server <- function(session, input, output) {
             )) +
             geom_point(size = 5,  alpha = 0.7) + scale_y_continuous(labels = scales::percent_format(accuracy = 1),
                                                                     limits = c(0, 1)) +
-            theme_minimal() + xlab("") + ylab("% readings in range") +
-            scale_color_gradient(
-                high = "#FF0000",
-                low = "#66ff00",
-                name = "Daily blood \nglucose variability",
-                breaks = c(0.5, 5.5),
-                labels = c("Low", "High"),
-                limits = c(0, 6)
+            theme_minimal() + xlab("") + ylab("% readings in range") 
+          
+          if(mmol_or_dL()=="(mg/dL)"){
+          p <- p +  scale_color_gradient(
+              high = "#FF0000",
+              low = "#66ff00",
+              name = "Daily blood \nglucose variability",
+              breaks = c(9, 99),
+              labels = c("Low", "High"),
+              limits = c(1.8, 108)
             )
+          } else {
+            p <- p +  scale_color_gradient(
+              high = "#FF0000",
+              low = "#66ff00",
+              name = "Daily blood \nglucose variability",
+              breaks = c(0.5, 5.5),
+              labels = c("Low", "High"),
+              limits = c(0.1, 6)
+            )
+          }
         
         
         p <- ggplotly(p, tooltip = c("text"), source = "date") %>%
@@ -1472,7 +1507,7 @@ server <- function(session, input, output) {
         # Graph
         plot <-
             ggplot(dailyData(),
-                   aes(x = `Date-time`, y = `Sensor Glucose (mmol/L)`)) +
+                   aes(x = `Date-time`, y = `Sensor Glucose`)) +
             annotate(
                 "rect",
                 xmin = start_time,
@@ -1483,7 +1518,13 @@ server <- function(session, input, output) {
                 alpha = .2,
                 color = NA
             ) +
-            geom_line() + xlab("") + theme_minimal() + scale_y_continuous(limits = c(0, 25))
+            geom_line() + xlab("") + theme_minimal() 
+        
+        if(mmol_or_dL()=="(mmol/L)"){
+          plot <- plot + scale_y_continuous(limits = c(0, 25), name = "Sensor glucose (mmol/L)") 
+        } else {
+          plot <- plot + scale_y_continuous(limits = c(0*18, 25*18), name = "Sensor glucose (mg/dL)") 
+        }
         
         plot <- ggplotly(plot)
         
@@ -1574,12 +1615,12 @@ server <- function(session, input, output) {
                 dplyr::filter(date_rangeIndicator != "Not in range") %>%
                 mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
                 mutate(low_event = ifelse(
-                    `Sensor Glucose (mmol/L)` < input$target_range[1],
+                    `Sensor Glucose` < input$target_range[1],
                     1,
                     0
                 )) %>%
                 mutate(high_event = ifelse(
-                    `Sensor Glucose (mmol/L)` > input$target_range[2],
+                    `Sensor Glucose` > input$target_range[2],
                     1,
                     0
                 ))
@@ -1590,12 +1631,12 @@ server <- function(session, input, output) {
                                   date <= as.Date(input$date1[2])) %>%
                 mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
                 mutate(low_event = ifelse(
-                    `Sensor Glucose (mmol/L)` < input$target_range[1],
+                    `Sensor Glucose` < input$target_range[1],
                     1,
                     0
                 )) %>%
                 mutate(high_event = ifelse(
-                    `Sensor Glucose (mmol/L)` > input$target_range[2],
+                    `Sensor Glucose` > input$target_range[2],
                     1,
                     0
                 )) %>%
@@ -1882,14 +1923,14 @@ server <- function(session, input, output) {
                 mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
                 mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
                 group_by(Time_round) %>%
-                mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+                mutate(glucose_mean = mean(`Sensor Glucose`, na.rm = TRUE)) %>%
                 mutate(pLow = quantile(
-                    `Sensor Glucose (mmol/L)`,
+                    `Sensor Glucose`,
                     probs = 0.25,
                     na.rm = TRUE
                 )) %>%
                 mutate(pHigh = quantile(
-                    `Sensor Glucose (mmol/L)`,
+                    `Sensor Glucose`,
                     probs = 0.75,
                     na.rm = TRUE
                 )) %>%
@@ -1914,14 +1955,14 @@ server <- function(session, input, output) {
                 ) %>%
                 dplyr::filter(date_rangeIndicator != "Not in range") %>%
                 group_by(Time_round, date_rangeIndicator) %>%
-                mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+                mutate(glucose_mean = mean(`Sensor Glucose`, na.rm = TRUE)) %>%
                 mutate(pLow = quantile(
-                    `Sensor Glucose (mmol/L)`,
+                    `Sensor Glucose`,
                     probs = 0.25,
                     na.rm = TRUE
                 )) %>%
                 mutate(pHigh = quantile(
-                    `Sensor Glucose (mmol/L)`,
+                    `Sensor Glucose`,
                     probs = 0.75,
                     na.rm = TRUE
                 )) %>%
@@ -1964,7 +2005,7 @@ server <- function(session, input, output) {
                         name = 'Middle 50% of readings per time period'
                     ) %>%
                     layout(
-                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                        yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                      ticklen = 5),
                         xaxis = list(
                             type = "date",
@@ -2023,7 +2064,7 @@ server <- function(session, input, output) {
                         name = 'Date range 2 \nMiddle 50% of readings per time period'
                     ) %>%
                     layout(
-                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                        yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                      ticklen = 5),
                         xaxis = list(
                             type = "date",
@@ -2052,7 +2093,7 @@ server <- function(session, input, output) {
                         )
                     ) %>%
                     layout(
-                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                        yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                      ticklen = 5),
                         xaxis = list(
                             type = "date",
@@ -2093,7 +2134,7 @@ server <- function(session, input, output) {
                         line = list(color = 'rgba(255, 0, 0, 0.8)')
                     ) %>%
                     layout(
-                        yaxis = list(title = "Sensor glucose (mmol/L)",
+                        yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                      ticklen = 5),
                         xaxis = list(
                             type = "date",
@@ -2138,41 +2179,25 @@ server <- function(session, input, output) {
             )) 
     })
     
-    # exercise_df_12 <- reactive({
-    #     exercise_df() %>%
-    #         filter(exercise_within_time_12 == 1 &
-    #                    !is.na(exercise_group) & is.na(`Event Marker`)) %>%
-    #         select(date_time,
-    #                Date,
-    #                Time,
-    #                `Sensor Glucose (mmol/L)`,
-    #                exercise_group) %>%
-    #         # Need to rename date_time and Sensor.glucose. to match names in other dataframe
-    #         mutate(Time_round = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
-    #         mutate(glucose_mean = `Sensor Glucose (mmol/L)`) %>%
-    #         # Add extra row to the end of each group so that there are gaps in the line charts
-    #         mutate(glucose_mean = c(glucose_mean[-n()], NA)) %>%
-    #         arrange(Time_round) %>%
-    #         group_by(exercise_group)
-    # })
+
     
     exercise_df_24 <- reactive({
         exercise_df() %>%
             filter(exercise_within_time_24 == 1 &
                        !is.na(exercise_group) & is.na(`Event Marker`)) %>%
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`, `Event Marker`) %>%
+            select(date_time, Date, Time, `Sensor Glucose`, `Event Marker`) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
             mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
             group_by(Time_round) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose`, na.rm = TRUE)) %>%
             mutate(pLow = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.25,
                 na.rm = TRUE
             )) %>%
             mutate(pHigh = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.75,
                 na.rm = TRUE
             )) %>%
@@ -2186,19 +2211,19 @@ server <- function(session, input, output) {
     no_exerciseAverage_df <-  reactive({
         exercise_df() %>%
             filter(exercise_within_time_24 != 1) %>%
-            select(date_time, Date, Time, `Sensor Glucose (mmol/L)`) %>%
+            select(date_time, Date, Time, `Sensor Glucose`) %>%
             # Need to rename date_time and Sensor.glucose. to match names in other dataframe
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) %>%
             mutate(Time_round = lubridate::round_date(Time, "15 minutes")) %>%
             group_by(Time_round) %>%
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>%
+            mutate(glucose_mean = mean(`Sensor Glucose`, na.rm = TRUE)) %>%
             mutate(pLow = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.25,
                 na.rm = TRUE
             )) %>%
             mutate(pHigh = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.75,
                 na.rm = TRUE
             )) %>%
@@ -2214,8 +2239,11 @@ server <- function(session, input, output) {
             filter(`Event Marker` == "Exercise") %>% 
             mutate(Time = as.POSIXct(Time, format = "%H:%M:%S", tz = Sys.timezone())) 
             
-            
-        df$y <- myrunif(nrow(df), min=0.5, max=1)
+        if(mmol_or_dL()=="mmol/L"){
+          df$y <- myrunif(nrow(df), min=0.5, max=1)
+        } else {
+          df$y <- myrunif(nrow(df), min=10, max=20)
+        }
         df
     })
     
@@ -2233,14 +2261,14 @@ server <- function(session, input, output) {
             mutate(time_elapsed_exercise = seconds_to_period(time_elapsed_exercise)) %>% 
             # Get average by 15 minutes, by exercise group
             group_by(time_elapsed_exercise) %>% 
-            mutate(glucose_mean = mean(`Sensor Glucose (mmol/L)`, na.rm = TRUE)) %>% 
+            mutate(glucose_mean = mean(`Sensor Glucose`, na.rm = TRUE)) %>% 
             mutate(pLow = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.25,
                 na.rm = TRUE
             )) %>%
             mutate(pHigh = quantile(
-                `Sensor Glucose (mmol/L)`,
+                `Sensor Glucose`,
                 probs = 0.75,
                 na.rm = TRUE
             )) %>%
@@ -2259,75 +2287,6 @@ server <- function(session, input, output) {
         df
         
     })
-    
-    # output$readings_exercise <- renderPlotly({
-    #     validate(need(!is.null(getData()), "No data uploaded yet"))
-    #     validate(need(!is.null(exercise_df()), "No data uploaded yet"))
-    #     
-    #     # dat <- highlight_key(exercise_df_12(), key =  ~ exercise_group)
-        
-    #     plot <-
-    #         plot_ly() %>%
-    #         add_lines(
-    #             data = no_exerciseAverage_df(),
-    #             x =  ~ Time_round,
-    #             y =  ~ glucose_mean,
-    #             type = 'scatter',
-    #             mode = 'lines',
-    #             name = "Average sensor glucose - \nno exercise",
-    #             line = list(
-    #                 color = "black",
-    #                 widthh = 0.5,
-    #                 dash = "dot"
-    #             ),
-    #             hoverinfo = 'text',
-    #             showlegend = TRUE,
-    #             text = ~ paste0(
-    #                 "Time: ",
-    #                 strftime(Time_round, format = "%H:%M"),
-    #                 "<br>",
-    #                 "Sensor glucose: ",
-    #                 round(glucose_mean, 1)
-    #             )
-    #         ) %>%
-    #         add_lines(
-    #             data = dat,
-    #             x =  ~ Time_round,
-    #             y =  ~ glucose_mean,
-    #             connectgaps = FALSE,
-    #             showlegend = FALSE,
-    #             hoverinfo = 'text',
-    #             line = list(color = 'rgba(0, 0, 225, 0.8)'),
-    #             text = ~ paste0(
-    #                 "Date: ",
-    #                 as.character(Date),
-    #                 "<br>",
-    #                 "Time: ",
-    #                 strftime(Time_round, format = "%H:%M"),
-    #                 "<br>",
-    #                 "Sensor glucose: ",
-    #                 round(glucose_mean, 1)
-    #             )
-    #         ) %>%
-    #         highlight(
-    #             data = dat,
-    #             on = "plotly_hover",
-    #             off = "plotly_doubleclick",
-    #             opacityDim = 0.5
-    #         ) %>%
-    #         layout(
-    #             yaxis = list(title = "Sensor glucose (mmol/L)",
-    #                          ticklen = 5),
-    #             showlegend = TRUE,
-    #             xaxis = list(
-    #                 type = "date",
-    #                 tickformat = "%H:%M",
-    #                 title = ''
-    #             )
-    #         )
-    #     plot
-    #     
-    # })
     
     
     
@@ -2435,7 +2394,7 @@ server <- function(session, input, output) {
                     opacityDim = 0.5
                 ) %>%
                 layout(
-                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                    yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                  ticklen = 5),
                     showlegend = TRUE,
                     xaxis = list(
@@ -2508,7 +2467,7 @@ server <- function(session, input, output) {
                     opacityDim = 0.5
                 ) %>%
                 layout(
-                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                    yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                  ticklen = 5),
                     showlegend = TRUE,
                     xaxis = list(
@@ -2545,7 +2504,7 @@ server <- function(session, input, output) {
                           round(glucose_mean, 1)
                       )) %>% 
             layout(
-                yaxis = list(title = "Sensor glucose (mmol/L)",
+                yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                              ticklen = 5),
                 showlegend = TRUE,
                 xaxis = list(
@@ -2585,7 +2544,7 @@ server <- function(session, input, output) {
                     name = 'Middle 50% of readings per time after exercise'
                 ) %>%
                 layout(
-                    yaxis = list(title = "Sensor glucose (mmol/L)",
+                    yaxis = list(title = paste0("Sensor glucose ", mmol_or_dL()),
                                  ticklen = 5),
                     showlegend = TRUE,
                     xaxis = list(
