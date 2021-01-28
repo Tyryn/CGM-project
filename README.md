@@ -17,3 +17,7 @@ The dashboard relies on the following R libraries:
 * tidyverse
 * shiny
 * plotly
+
+I have uploaded two csvs containing my own CGM data to this repository. The one contains 
+glucose data in mmol/L and the other in mg/dL, showing that both units of measurement
+work with this webapp.
