@@ -1,7 +1,7 @@
 # CGM-project
 ## Visualizing your own Medtronic CGM data in an RShiny app.
 
-The RShiny web app allows a diabetic with a Medtronic continuous glucose monitor (CGM) 
+An [RShiny web app](https://firdaleconsulting.shinyapps.io/CGM-app/) that allows a diabetic with a Medtronic continuous glucose monitor (CGM) 
 to upload their raw data and analyse it. Medtronic's [Carelink](https://carelink.minimed.eu/) 
 website allows users to download their recorded CGM data in csv format which can then
 be uploaded to this web app. The web app offers users:
