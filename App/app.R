@@ -8,7 +8,6 @@ library(zoo)
 library(lubridate)
 library(scales)
 library(shinydashboard)
-library(zoo)
 library(shinyjs)
 library(shinybusy)
 
